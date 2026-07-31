@@ -28,7 +28,7 @@ from homeassistant.util.percentage import (
     percentage_to_ordered_list_item,
 )
 
-from . import Helper
+from . import Helper, optimistic_state, remote_entity_id, warn_if_no_unique_id
 from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ PLATFORM_SCHEMA = FAN_PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_UNIQUE_ID): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Required(CONF_DEVICE_CODE): cv.positive_int,
-        vol.Required(CONF_CONTROLLER_DATA): cv.string,
+        vol.Required(CONF_CONTROLLER_DATA): remote_entity_id,
         vol.Optional(CONF_DELAY, default=DEFAULT_DELAY): cv.positive_float,
         vol.Optional(CONF_POWER_SENSOR): cv.entity_id,
     }
@@ -65,6 +65,8 @@ async def async_setup_platform(
     """Set up the IR Fan platform."""
     device_code = config[CONF_DEVICE_CODE]
     device_data = await Helper.load_device_data(hass, "fan", device_code)
+
+    warn_if_no_unique_id("fan", config)
 
     async_add_entities([BroadlinkIRFan(hass, config, device_data)])
 
@@ -170,10 +172,13 @@ class BroadlinkIRFan(FanEntity, RestoreEntity):
         return self._on_by_remote or self._speed != SPEED_OFF
 
     @property
-    def percentage(self) -> int:
+    def percentage(self) -> int | None:
         """Return speed percentage of the fan."""
         if self._speed == SPEED_OFF:
-            return 0
+            # Switched on by its own remote: it is running at a speed we have no
+            # way of reading. Reporting 0 would contradict is_on, so report that
+            # the speed is unknown instead.
+            return None if self._on_by_remote else 0
 
         return ordered_list_item_to_percentage(self._speed_list, self._speed)
 
@@ -217,32 +222,32 @@ class BroadlinkIRFan(FanEntity, RestoreEntity):
 
     async def async_set_percentage(self, percentage: int) -> None:
         """Set the desired speed for the fan."""
-        if percentage == 0:
-            self._speed = SPEED_OFF
-        else:
-            self._speed = percentage_to_ordered_list_item(self._speed_list, percentage)
+        async with optimistic_state(self, "_speed", "_last_on_speed", "_on_by_remote"):
+            if percentage == 0:
+                self._speed = SPEED_OFF
+            else:
+                self._speed = percentage_to_ordered_list_item(
+                    self._speed_list, percentage
+                )
 
-        if self._speed != SPEED_OFF:
-            self._last_on_speed = self._speed
+            if self._speed != SPEED_OFF:
+                self._last_on_speed = self._speed
 
-        await self.send_command()
-        self.async_write_ha_state()
+            await self.send_command()
 
     async def async_oscillate(self, oscillating: bool) -> None:
         """Set oscillation of the fan."""
-        self._oscillating = oscillating
-
-        await self.send_command()
-        self.async_write_ha_state()
+        async with optimistic_state(self, "_oscillating", "_on_by_remote"):
+            self._oscillating = oscillating
+            await self.send_command()
 
     async def async_set_direction(self, direction: str) -> None:
         """Set the direction of the fan."""
-        self._direction = direction
+        async with optimistic_state(self, "_direction", "_on_by_remote"):
+            self._direction = direction
 
-        if self._speed != SPEED_OFF:
-            await self.send_command()
-
-        self.async_write_ha_state()
+            if self._speed != SPEED_OFF:
+                await self.send_command()
 
     async def async_turn_on(
         self,
@@ -263,7 +268,11 @@ class BroadlinkIRFan(FanEntity, RestoreEntity):
         await self.async_set_percentage(0)
 
     async def send_command(self) -> None:
-        """Send the code matching the current speed/direction/oscillation."""
+        """Send the code matching the current speed/direction/oscillation.
+
+        Raises HomeAssistantError if the command cannot be delivered, so the
+        caller does not publish a state that was never transmitted.
+        """
         async with self._temp_lock:
             self._on_by_remote = False
             speed = self._speed
@@ -277,21 +286,14 @@ class BroadlinkIRFan(FanEntity, RestoreEntity):
                     command = self._commands["oscillate"]
                 else:
                     command = self._commands[direction][speed]
-            except KeyError:
-                _LOGGER.error(
-                    "Device code %s has no command for speed '%s', direction "
-                    "'%s', oscillating '%s'",
-                    self._device_code,
-                    speed,
-                    direction,
-                    oscillating,
-                )
-                return
+            except KeyError as err:
+                raise HomeAssistantError(
+                    f"Device code {self._device_code} has no command for speed "
+                    f"'{speed}', direction '{direction}', oscillating "
+                    f"'{oscillating}'"
+                ) from err
 
-            try:
-                await self._controller.send(command)
-            except Exception:
-                _LOGGER.exception("Error sending command to %s", self._controller_data)
+            await self._controller.send(command)
 
     async def _async_power_sensor_changed(
         self, event: Event[EventStateChangedData]

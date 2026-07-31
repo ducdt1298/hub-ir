@@ -1,0 +1,64 @@
+# Lint configuration, so `ruff check` gives the same answer for everyone
+# instead of depending on which flags were typed.
+#
+# The isort settings mirror Home Assistant's own, because this code follows its
+# conventions: `import homeassistant.helpers.config_validation as cv` sorted
+# among the from-imports, and `DOMAIN as CLIMATE_DOMAIN` combined into the
+# import it belongs to.
+
+line-length = 88
+target-version = "py313"
+
+[lint]
+select = [
+    "ASYNC", # async mistakes, e.g. blocking calls in the event loop
+    "B",     # flake8-bugbear
+    "C4",    # comprehensions
+    "D",     # docstrings
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "I",     # import sorting
+    "N",     # naming
+    "PL",    # pylint
+    "RUF",   # ruff-specific
+    "SIM",   # simplifications
+    "T20",   # no stray print()
+    "UP",    # pyupgrade
+    "W",     # pycodestyle warnings
+]
+
+ignore = [
+    "D203",   # incompatible with D211, which ruff prefers
+    "D213",   # incompatible with D212, which ruff prefers
+    "EXE002", # the executable bit comes from the filesystem, not from the file
+]
+
+[lint.isort]
+force-sort-within-sections = true
+known-first-party = ["homeassistant"]
+combine-as-imports = true
+split-on-trailing-comma = false
+
+[lint.pylint]
+# light.py's async_turn_on has 14 branches and the validator's check_climate has
+# 20. Both are flat sequences of independent checks rather than nested logic, and
+# splitting the light's brightness/colour-temperature handling would risk
+# changing behaviour that is now pinned by tests. Raised deliberately rather than
+# silenced per file, so a genuinely tangled function still gets flagged.
+max-branches = 20
+
+[lint.per-file-ignores]
+# Tests take their fixtures as arguments, and parametrised ones exceed any
+# argument-count limit by construction. They also compare against literals,
+# which is the point of an assertion.
+"tests/*" = ["PLR0913", "PLR0917", "PLR2004"]
+
+# conftest.py must extend `custom_components.__path__` before Home Assistant's
+# test package is imported, so its imports genuinely cannot all sit at the top.
+# The lazy imports elsewhere in the tests exist for the same reason.
+"tests/conftest.py" = ["PLR0913", "PLR0917", "PLR2004", "E402", "PLC0415"]
+"tests/test_real_device_files.py" = ["PLR0913", "PLR0917", "PLR2004", "PLC0415"]
+"tests/test_real_device_shapes.py" = ["PLR0913", "PLR0917", "PLR2004", "PLC0415"]
+
+# The validator is a standalone script: printing its findings is its purpose.
+"scripts/*" = ["T20"]

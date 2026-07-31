@@ -24,6 +24,7 @@ from homeassistant.const import (
     STATE_ON,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .conftest import MEDIA_PLAYER_DEVICE_DATA, payloads
 
@@ -140,22 +141,27 @@ async def test_play_media_tunes_digit_by_digit(hass: HomeAssistant, tv) -> None:
 async def test_play_media_with_an_unknown_digit_sends_nothing(
     hass: HomeAssistant, tv
 ) -> None:
-    """A channel the device file cannot express is refused before any code."""
+    """A channel the device file cannot express is refused before any code.
+
+    Refused loudly: the service call fails, so an automation tuning to a channel
+    this device file cannot reach does not carry on as if it had worked.
+    """
     await hass.services.async_call(
         MEDIA_PLAYER_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: ENTITY_ID}, blocking=True
     )
     tv.clear()
 
-    await hass.services.async_call(
-        MEDIA_PLAYER_DOMAIN,
-        SERVICE_PLAY_MEDIA,
-        {
-            ATTR_ENTITY_ID: ENTITY_ID,
-            ATTR_MEDIA_CONTENT_TYPE: MediaType.CHANNEL,
-            ATTR_MEDIA_CONTENT_ID: "39",
-        },
-        blocking=True,
-    )
+    with pytest.raises(HomeAssistantError, match="no 'Channel 3' source"):
+        await hass.services.async_call(
+            MEDIA_PLAYER_DOMAIN,
+            SERVICE_PLAY_MEDIA,
+            {
+                ATTR_ENTITY_ID: ENTITY_ID,
+                ATTR_MEDIA_CONTENT_TYPE: MediaType.CHANNEL,
+                ATTR_MEDIA_CONTENT_ID: "39",
+            },
+            blocking=True,
+        )
 
     assert payloads(tv) == []
 

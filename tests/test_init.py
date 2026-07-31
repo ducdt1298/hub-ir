@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from custom_components.broadlink_ir import DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
-
-from custom_components.broadlink_ir import DOMAIN
 
 
 async def test_setup_without_options(hass: HomeAssistant) -> None:

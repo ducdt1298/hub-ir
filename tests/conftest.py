@@ -13,7 +13,9 @@ import pytest
 # depending on import order it can shadow this repository's. Add this repo's
 # directory to whichever package won, so `custom_components.broadlink_ir`
 # resolves the same way whether the whole suite or a single file runs.
-_REPO_CUSTOM_COMPONENTS = str(Path(__file__).resolve().parent.parent / "custom_components")
+_REPO_CUSTOM_COMPONENTS = str(
+    Path(__file__).resolve().parent.parent / "custom_components"
+)
 
 
 def _make_component_importable() -> None:
@@ -25,11 +27,16 @@ def _make_component_importable() -> None:
 
 _make_component_importable()
 
+from pytest_homeassistant_custom_component.common import async_mock_service
+
+from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.entity_component import DATA_INSTANCES
 from homeassistant.setup import async_setup_component
 
-from pytest_homeassistant_custom_component.common import async_mock_service
+# The remote entities the tests configure as controller_data. The controller
+# refuses to send to a remote that does not exist, so they need a real state.
+REMOTE_ENTITY_IDS = ("remote.broadlink", "remote.rm", "remote.rm4")
 
 # A minimal Broadlink climate device: two modes, one fan speed, 16-17 degrees.
 CLIMATE_DEVICE_DATA: dict[str, Any] = {
@@ -129,10 +136,16 @@ async def sent_commands(hass: HomeAssistant) -> list[ServiceCall]:
     """Capture every remote.send_command call.
 
     The remote component is set up first: broadlink_ir depends on it, so platform
-    setup would otherwise register the real service over the mock.
+    setup would otherwise register the real service over the mock. The remote
+    entities are then given a state, because the controller refuses to send to a
+    remote that does not exist — that is how a typo in controller_data is caught.
     """
     assert await async_setup_component(hass, "remote", {})
     await hass.async_block_till_done()
+
+    for entity_id in REMOTE_ENTITY_IDS:
+        hass.states.async_set(entity_id, STATE_ON)
+
     return async_mock_service(hass, "remote", "send_command")
 
 
@@ -156,5 +169,5 @@ def payloads(calls: list[ServiceCall]) -> list[list[str]]:
 
 def get_entity(hass: HomeAssistant, entity_id: str):
     """Return the live entity object behind an entity_id."""
-    domain = entity_id.split(".")[0]
+    domain = entity_id.split(".", maxsplit=1)[0]
     return hass.data[DATA_INSTANCES][domain].get_entity(entity_id)

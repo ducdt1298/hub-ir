@@ -9,9 +9,9 @@ rejects, leaves the entity broken until the user touches it.
 from __future__ import annotations
 
 import pytest
+from pytest_homeassistant_custom_component.common import mock_restore_cache
 
-from homeassistant.components.climate import HVACMode
-from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
 from homeassistant.components.fan import ATTR_PERCENTAGE, DOMAIN as FAN_DOMAIN
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -28,8 +28,6 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, State
-
-from pytest_homeassistant_custom_component.common import mock_restore_cache
 
 from .conftest import (
     CLIMATE_DEVICE_DATA,
@@ -92,7 +90,11 @@ async def test_climate_rejects_an_unusable_restored_mode(
     """
     mock_restore_cache(
         hass,
-        (State("climate.test_ac", restored, {"fan_mode": "low", ATTR_TEMPERATURE: 16}),),
+        (
+            State(
+                "climate.test_ac", restored, {"fan_mode": "low", ATTR_TEMPERATURE: 16}
+            ),
+        ),
     )
     write_device_file("climate", 9000, CLIMATE_DEVICE_DATA)
     await setup_platform(CLIMATE_DOMAIN, CLIMATE_CONFIG)
@@ -240,9 +242,7 @@ async def test_fan_rejects_a_speed_the_file_dropped(
 
     percentage and send_command both index the speed list with it.
     """
-    mock_restore_cache(
-        hass, (State("fan.test_fan", STATE_ON, {"speed": "turbo"}),)
-    )
+    mock_restore_cache(hass, (State("fan.test_fan", STATE_ON, {"speed": "turbo"}),))
     write_device_file("fan", 9100, FAN_DEVICE_DATA)
     await setup_platform(
         FAN_DOMAIN,

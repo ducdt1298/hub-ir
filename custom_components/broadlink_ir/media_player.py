@@ -18,13 +18,20 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.const import CONF_NAME, STATE_OFF, STATE_ON
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from . import Helper, is_recorded
+from . import (
+    Helper,
+    is_recorded,
+    optimistic_state,
+    remote_entity_id,
+    warn_if_no_unique_id,
+)
 from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,7 +53,7 @@ PLATFORM_SCHEMA = MEDIA_PLAYER_PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_UNIQUE_ID): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Required(CONF_DEVICE_CODE): cv.positive_int,
-        vol.Required(CONF_CONTROLLER_DATA): cv.string,
+        vol.Required(CONF_CONTROLLER_DATA): remote_entity_id,
         vol.Optional(CONF_DELAY, default=DEFAULT_DELAY): cv.positive_float,
         vol.Optional(CONF_POWER_SENSOR): cv.entity_id,
         vol.Optional(CONF_SOURCE_NAMES): dict,
@@ -66,6 +73,8 @@ async def async_setup_platform(
     """Set up the IR Media Player platform."""
     device_code = config[CONF_DEVICE_CODE]
     device_data = await Helper.load_device_data(hass, "media_player", device_code)
+
+    warn_if_no_unique_id("media player", config)
 
     async_add_entities([BroadlinkIRMediaPlayer(hass, config, device_data)])
 
@@ -104,7 +113,9 @@ class BroadlinkIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
         # recorded: parts of the database leave empty placeholders behind, and
         # advertising those makes the UI offer buttons that cannot work.
         if self._has_code("off"):
-            self._support_flags = self._support_flags | MediaPlayerEntityFeature.TURN_OFF
+            self._support_flags = (
+                self._support_flags | MediaPlayerEntityFeature.TURN_OFF
+            )
 
         if self._has_code("on"):
             self._support_flags = self._support_flags | MediaPlayerEntityFeature.TURN_ON
@@ -173,6 +184,21 @@ class BroadlinkIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
     def _has_code(self, command: str) -> bool:
         """Return whether the device file records a usable code for a command."""
         return is_recorded(self._commands.get(command))
+
+    def _command(self, name: str) -> str | list[str]:
+        """Return a recorded command, or explain why it cannot be sent.
+
+        The supported_features flags are built from _has_code, so Home Assistant
+        does not offer these in the UI. A hand-written device file reaching a
+        service call directly would otherwise raise a bare KeyError.
+        """
+        command = self._commands.get(name)
+        if not is_recorded(command):
+            raise HomeAssistantError(
+                f"Device code {self._device_code} has no code recorded for "
+                f"'{name}', so that cannot be controlled from Home Assistant"
+            )
+        return command
 
     async def async_added_to_hass(self) -> None:
         """Restore the previous state and start watching the power sensor."""
@@ -254,7 +280,7 @@ class BroadlinkIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
 
     async def async_turn_off(self) -> None:
         """Turn the media player off."""
-        await self.send_command(self._commands["off"])
+        await self.send_command(self._command("off"))
 
         if self._power_sensor is None:
             self._state = MediaPlayerState.OFF
@@ -263,7 +289,7 @@ class BroadlinkIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
 
     async def async_turn_on(self) -> None:
         """Turn the media player on."""
-        await self.send_command(self._commands["on"])
+        await self.send_command(self._command("on"))
 
         if self._power_sensor is None:
             self._state = MediaPlayerState.ON
@@ -271,79 +297,82 @@ class BroadlinkIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
 
     async def async_media_previous_track(self) -> None:
         """Send previous track command."""
-        await self.send_command(self._commands["previousChannel"])
-        self.async_write_ha_state()
+        await self.send_command(self._command("previousChannel"))
 
     async def async_media_next_track(self) -> None:
         """Send next track command."""
-        await self.send_command(self._commands["nextChannel"])
-        self.async_write_ha_state()
+        await self.send_command(self._command("nextChannel"))
 
     async def async_volume_down(self) -> None:
         """Turn volume down for media player."""
-        await self.send_command(self._commands["volumeDown"])
-        self.async_write_ha_state()
+        await self.send_command(self._command("volumeDown"))
 
     async def async_volume_up(self) -> None:
         """Turn volume up for media player."""
-        await self.send_command(self._commands["volumeUp"])
-        self.async_write_ha_state()
+        await self.send_command(self._command("volumeUp"))
 
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute the volume."""
-        await self.send_command(self._commands["mute"])
-        self.async_write_ha_state()
+        await self.send_command(self._command("mute"))
 
     async def async_select_source(self, source: str) -> None:
         """Select channel from source."""
-        if source not in self._commands["sources"]:
-            _LOGGER.error(
-                "Device code %s has no source '%s'", self._device_code, source
+        sources = self._commands.get("sources") or {}
+        if not is_recorded(sources.get(source)):
+            raise HomeAssistantError(
+                f"Device code {self._device_code} has no code recorded for the "
+                f"source '{source}'"
             )
-            return
 
-        self._source = source
-        await self.send_command(self._commands["sources"][source])
-        self.async_write_ha_state()
+        async with optimistic_state(self, "_source"):
+            self._source = source
+            await self.send_command(sources[source])
 
     async def async_play_media(
         self, media_type: str, media_id: str, **kwargs: Any
     ) -> None:
         """Support channel change through the play_media service."""
+        # Raised rather than logged, for the same reason as everything else here:
+        # an automation whose play_media call does nothing should be told.
         if media_type != MediaType.CHANNEL:
-            _LOGGER.error("Invalid media type %s, expected %s", media_type, MediaType.CHANNEL)
-            return
+            raise HomeAssistantError(
+                f"Invalid media type '{media_type}': this device can only tune to "
+                f"a channel, so media_content_type must be '{MediaType.CHANNEL}'"
+            )
         if not media_id.isdigit():
-            _LOGGER.error("media_id must be a channel number")
-            return
+            raise HomeAssistantError(
+                f"Invalid media id '{media_id}': it must be a channel number, "
+                "because the channel is entered one digit at a time"
+            )
 
+        sources = self._commands.get("sources") or {}
         missing = [
-            digit for digit in media_id if f"Channel {digit}" not in self._commands["sources"]
+            digit
+            for digit in media_id
+            if not is_recorded(sources.get(f"Channel {digit}"))
         ]
         if missing:
-            _LOGGER.error(
-                "Device code %s has no 'Channel %s' source, cannot tune to %s",
-                self._device_code,
-                missing[0],
-                media_id,
+            raise HomeAssistantError(
+                f"Device code {self._device_code} has no 'Channel {missing[0]}' "
+                f"source recorded, so it cannot tune to {media_id}"
             )
-            return
 
         if self._state == MediaPlayerState.OFF:
             await self.async_turn_on()
 
-        self._source = f"Channel {media_id}"
-        for digit in media_id:
-            await self.send_command(self._commands["sources"][f"Channel {digit}"])
-        self.async_write_ha_state()
+        async with optimistic_state(self, "_source"):
+            self._source = f"Channel {media_id}"
+            for digit in media_id:
+                await self.send_command(sources[f"Channel {digit}"])
 
     async def send_command(self, command: str | list[str]) -> None:
-        """Send a raw command from the device file."""
+        """Send a raw command from the device file.
+
+        Raises HomeAssistantError if the command cannot be delivered, so the
+        caller does not publish a state that was never transmitted.
+        """
         async with self._temp_lock:
-            try:
-                await self._controller.send(command)
-            except Exception:
-                _LOGGER.exception("Error sending command to %s", self._controller_data)
+            await self._controller.send(command)
 
     async def _async_power_sensor_changed(
         self, event: Event[EventStateChangedData]

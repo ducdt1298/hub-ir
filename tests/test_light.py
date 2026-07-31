@@ -124,7 +124,12 @@ async def test_onoff_only_device_file(
     )
     await setup_platform(
         LIGHT_DOMAIN,
-        {**CONFIG, "name": "OnOff Light", "unique_id": "onoff_light", "device_code": 9201},
+        {
+            **CONFIG,
+            "name": "OnOff Light",
+            "unique_id": "onoff_light",
+            "device_code": 9201,
+        },
     )
 
     state = hass.states.get("light.onoff_light")

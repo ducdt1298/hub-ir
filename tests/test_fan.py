@@ -143,7 +143,8 @@ async def test_power_sensor_on_keeps_percentage_usable(
     """Turning off after the remote turned it on must not crash.
 
     Upstream set the speed to None here, which broke the percentage property
-    and the next send.
+    and the next send. The fan is running at a speed nothing can read back, so
+    the percentage is unknown rather than 0 — 0 would contradict the state.
     """
     write_device_file("fan", 9102, FAN_DEVICE_DATA)
     hass.states.async_set("binary_sensor.fan2_power", STATE_OFF)
@@ -161,8 +162,10 @@ async def test_power_sensor_on_keeps_percentage_usable(
     hass.states.async_set("binary_sensor.fan2_power", STATE_ON)
     await hass.async_block_till_done()
 
-    # Reading the percentage must not raise.
-    assert hass.states.get("fan.q_fan").attributes[ATTR_PERCENTAGE] is not None
+    # Reading the percentage must not raise, and must not claim 0 while on.
+    state = hass.states.get("fan.q_fan")
+    assert state.state == STATE_ON
+    assert state.attributes[ATTR_PERCENTAGE] is None
 
     await hass.services.async_call(
         FAN_DOMAIN, SERVICE_TURN_OFF, {ATTR_ENTITY_ID: "fan.q_fan"}, blocking=True

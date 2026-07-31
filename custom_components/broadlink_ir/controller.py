@@ -6,7 +6,7 @@ from base64 import b64decode, b64encode
 import binascii
 import logging
 
-from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -80,7 +80,11 @@ class BroadlinkController:
         self._delay = delay
 
     async def send(self, command: str | list[str]) -> None:
-        """Send one command, or a list of commands, to the remote."""
+        """Send one command, or a list of commands, to the remote.
+
+        Raises HomeAssistantError if anything stops the command from reaching
+        the remote, so the caller can avoid advertising a state it never sent.
+        """
         commands = command if isinstance(command, list) else [command]
 
         if not is_recorded(commands):
@@ -90,16 +94,49 @@ class BroadlinkController:
 
         payload = [f"b64:{self._encode(entry)}" for entry in commands]
 
-        await self.hass.services.async_call(
-            "remote",
-            "send_command",
-            {
-                ATTR_ENTITY_ID: self._controller_data,
-                "command": payload,
-                "delay_secs": self._delay,
-            },
-            blocking=True,
-        )
+        self._assert_remote_usable()
+
+        try:
+            await self.hass.services.async_call(
+                "remote",
+                "send_command",
+                {
+                    ATTR_ENTITY_ID: self._controller_data,
+                    "command": payload,
+                    "delay_secs": self._delay,
+                },
+                blocking=True,
+            )
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Error sending the command to {self._controller_data}: {err}"
+            ) from err
+
+    def _assert_remote_usable(self) -> None:
+        """Fail loudly when the configured remote cannot accept a command.
+
+        remote.send_command targets an entity, and Home Assistant does not raise
+        for an entity_id that does not exist — it logs that the reference is
+        missing and moves on. A typo in controller_data would otherwise look
+        exactly like a successful send.
+        """
+        state = self.hass.states.get(self._controller_data)
+
+        if state is None:
+            raise HomeAssistantError(
+                f"The remote entity {self._controller_data} does not exist. Check "
+                "the controller_data option: it must be the entity_id of a "
+                "Broadlink remote, for example 'remote.bedroom_remote'"
+            )
+
+        if state.state == STATE_UNAVAILABLE:
+            raise HomeAssistantError(
+                f"The remote entity {self._controller_data} is unavailable, so the "
+                "command cannot be sent. Check that the Broadlink device is "
+                "powered on and reachable"
+            )
 
     def _encode(self, command: str) -> str:
         """Return the command as the base64 payload Broadlink expects."""

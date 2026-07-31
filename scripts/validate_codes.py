@@ -45,6 +45,16 @@ PLATFORM_KEYS = {
 # Mirrors climate.py: above this a min/max temperature cannot be Celsius.
 FAHRENHEIT_THRESHOLD = 40
 
+# Broadlink packet types: 0x26 is IR, the rest are the RF variants.
+PACKET_IR = 0x26
+PACKET_TYPES = (PACKET_IR, 0xB0, 0xB1, 0xB2, 0xD7)
+
+# An IR packet is a type byte, a repeat byte and a 16-bit payload length.
+IR_HEADER_LEN = 4
+
+# How many offending entries a warning names before summarising the rest.
+MAX_LISTED = 5
+
 # Codes inherited from upstream that cannot be decoded even after re-padding: a
 # character was lost or added when they were captured, and no single-character
 # repair yields an internally consistent Broadlink packet. They are reported as
@@ -101,9 +111,7 @@ def check_file(path: Path, platform: str) -> Report:
         report.error(f"missing key(s): {', '.join(missing)}")
 
     if (controller := data.get("supportedController")) != BROADLINK:
-        report.error(
-            f"supportedController is {controller!r}, expected {BROADLINK!r}"
-        )
+        report.error(f"supportedController is {controller!r}, expected {BROADLINK!r}")
 
     if (encoding := data.get("commandsEncoding")) not in VALID_ENCODINGS:
         report.error(
@@ -135,8 +143,12 @@ def count_placeholders(commands, report: Report) -> None:
     if not placeholders:
         return
 
-    shown = ", ".join("/".join(path) for path in placeholders[:5])
-    more = f" (+{len(placeholders) - 5} more)" if len(placeholders) > 5 else ""
+    shown = ", ".join("/".join(path) for path in placeholders[:MAX_LISTED])
+    more = (
+        f" (+{len(placeholders) - MAX_LISTED} more)"
+        if len(placeholders) > MAX_LISTED
+        else ""
+    )
     report.warn(
         f"{len(placeholders)} command(s) have no code recorded: {shown}{more}. "
         "The integration skips these and refuses to transmit them"
@@ -173,7 +185,7 @@ def check_codes_decode(data: dict, report: Report, platform: str, code: str) -> 
             where = "/".join(path)
             try:
                 raw = data_packet(entry)
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 if (platform, code, where) in KNOWN_CORRUPT:
                     known_bad.append(where)
                 else:
@@ -183,8 +195,12 @@ def check_codes_decode(data: dict, report: Report, platform: str, code: str) -> 
                 malformed.append(f"{where} ({problem})")
 
     if undecodable:
-        shown = ", ".join(undecodable[:5])
-        more = f" (+{len(undecodable) - 5} more)" if len(undecodable) > 5 else ""
+        shown = ", ".join(undecodable[:MAX_LISTED])
+        more = (
+            f" (+{len(undecodable) - MAX_LISTED} more)"
+            if len(undecodable) > MAX_LISTED
+            else ""
+        )
         report.error(f"{len(undecodable)} code(s) are not valid base64: {shown}{more}")
 
     if known_bad:
@@ -195,8 +211,12 @@ def check_codes_decode(data: dict, report: Report, platform: str, code: str) -> 
         )
 
     if malformed:
-        shown = ", ".join(malformed[:5])
-        more = f" (+{len(malformed) - 5} more)" if len(malformed) > 5 else ""
+        shown = ", ".join(malformed[:MAX_LISTED])
+        more = (
+            f" (+{len(malformed) - MAX_LISTED} more)"
+            if len(malformed) > MAX_LISTED
+            else ""
+        )
         report.warn(
             f"{len(malformed)} code(s) decode but do not look like a Broadlink "
             f"packet: {shown}{more}. They were probably captured badly and may "
@@ -209,14 +229,14 @@ def describe_packet_problem(raw: bytes) -> str | None:
     if not raw:
         return "decodes to zero bytes"
 
-    # 0x26 is IR; 0xb0/0xb1/0xb2/0xd7 are the RF variants.
-    if raw[0] not in (0x26, 0xB0, 0xB1, 0xB2, 0xD7):
+    if raw[0] not in PACKET_TYPES:
         return f"first byte 0x{raw[0]:02x} is not a known packet type"
 
-    if raw[0] == 0x26 and len(raw) >= 4:
+    if raw[0] == PACKET_IR and len(raw) >= IR_HEADER_LEN:
         declared = struct.unpack("<H", raw[2:4])[0]
-        if declared > len(raw) - 4:
-            return f"header declares {declared} payload bytes but only {len(raw) - 4} follow"
+        payload = len(raw) - IR_HEADER_LEN
+        if declared > payload:
+            return f"header declares {declared} payload bytes but only {payload} follow"
 
     return None
 
@@ -259,9 +279,7 @@ def check_climate(data: dict, report: Report) -> None:
     min_temp = data.get("minTemperature")
     max_temp = data.get("maxTemperature")
 
-    if not isinstance(min_temp, (int, float)) or not isinstance(
-        max_temp, (int, float)
-    ):
+    if not isinstance(min_temp, (int, float)) or not isinstance(max_temp, (int, float)):
         report.error("minTemperature and maxTemperature must be numbers")
         return
 
@@ -278,6 +296,16 @@ def check_climate(data: dict, report: Report) -> None:
         report.error(
             f"temperatureUnit says {declared} but the {min_temp}-{max_temp} "
             f"range looks like {inferred}"
+        )
+
+    # Celsius is the safe default, so only a Fahrenheit file has to say so. Left
+    # undeclared, climate.py would have to guess from the range, and a guess is
+    # not something a shipped device file should rely on.
+    if not declared and inferred == "F":
+        report.error(
+            f"the {min_temp}-{max_temp} range cannot be Celsius, so this file "
+            'must declare "temperatureUnit": "F" instead of leaving the '
+            "integration to infer it"
         )
 
     commands = data.get("commands")

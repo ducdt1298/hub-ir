@@ -35,7 +35,13 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util.unit_conversion import TemperatureConverter
 
-from . import Helper, is_recorded
+from . import (
+    Helper,
+    is_recorded,
+    optimistic_state,
+    remote_entity_id,
+    warn_if_no_unique_id,
+)
 from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,7 +77,7 @@ PLATFORM_SCHEMA = CLIMATE_PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_UNIQUE_ID): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Required(CONF_DEVICE_CODE): cv.positive_int,
-        vol.Required(CONF_CONTROLLER_DATA): cv.string,
+        vol.Required(CONF_CONTROLLER_DATA): remote_entity_id,
         vol.Optional(CONF_DELAY, default=DEFAULT_DELAY): cv.positive_float,
         vol.Optional(CONF_TEMPERATURE_UNIT): vol.In(
             [UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT]
@@ -93,6 +99,8 @@ async def async_setup_platform(
     """Set up the IR Climate platform."""
     device_code = config[CONF_DEVICE_CODE]
     device_data = await Helper.load_device_data(hass, "climate", device_code)
+
+    warn_if_no_unique_id("climate", config)
 
     async_add_entities([BroadlinkIRClimate(hass, config, device_data)])
 
@@ -128,7 +136,7 @@ class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
         # The device file's temperatures are in the unit the remote codes were
         # recorded in; HA converts to whatever the user displays.
         self._unit = config.get(CONF_TEMPERATURE_UNIT) or _device_temperature_unit(
-            device_data, self._max_temperature
+            device_data, self._max_temperature, self._device_code
         )
 
         valid_hvac_modes = [
@@ -352,6 +360,12 @@ class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
             "on_by_remote": self._on_by_remote,
         }
 
+    def _round_to_precision(self, temperature: float) -> float:
+        """Return a temperature rounded to the step the device accepts."""
+        if self._precision == PRECISION_WHOLE:
+            return round(temperature)
+        return round(temperature, 1)
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperatures."""
         hvac_mode = kwargs.get(ATTR_HVAC_MODE)
@@ -364,45 +378,49 @@ class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
             _LOGGER.warning("The temperature value is out of min/max range")
             return
 
-        if self._precision == PRECISION_WHOLE:
-            self._target_temperature = round(temperature)
-        else:
-            self._target_temperature = round(temperature, 1)
-
         if hvac_mode:
-            await self.async_set_hvac_mode(hvac_mode)
+            async with optimistic_state(
+                self,
+                "_target_temperature",
+                "_hvac_mode",
+                "_last_on_operation",
+                "_on_by_remote",
+            ):
+                self._target_temperature = self._round_to_precision(temperature)
+                self._hvac_mode = hvac_mode
+                if hvac_mode != HVACMode.OFF:
+                    self._last_on_operation = hvac_mode
+                await self.send_command()
             return
 
-        if self._hvac_mode != HVACMode.OFF:
-            await self.send_command()
-
-        self.async_write_ha_state()
+        async with optimistic_state(self, "_target_temperature", "_on_by_remote"):
+            self._target_temperature = self._round_to_precision(temperature)
+            if self._hvac_mode != HVACMode.OFF:
+                await self.send_command()
 
     async def async_set_hvac_mode(self, hvac_mode: str) -> None:
         """Set operation mode."""
-        self._hvac_mode = hvac_mode
-
-        if hvac_mode != HVACMode.OFF:
-            self._last_on_operation = hvac_mode
-
-        await self.send_command()
-        self.async_write_ha_state()
+        async with optimistic_state(
+            self, "_hvac_mode", "_last_on_operation", "_on_by_remote"
+        ):
+            self._hvac_mode = hvac_mode
+            if hvac_mode != HVACMode.OFF:
+                self._last_on_operation = hvac_mode
+            await self.send_command()
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set fan mode."""
-        self._current_fan_mode = fan_mode
-
-        if self._hvac_mode != HVACMode.OFF:
-            await self.send_command()
-        self.async_write_ha_state()
+        async with optimistic_state(self, "_current_fan_mode", "_on_by_remote"):
+            self._current_fan_mode = fan_mode
+            if self._hvac_mode != HVACMode.OFF:
+                await self.send_command()
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         """Set swing mode."""
-        self._current_swing_mode = swing_mode
-
-        if self._hvac_mode != HVACMode.OFF:
-            await self.send_command()
-        self.async_write_ha_state()
+        async with optimistic_state(self, "_current_swing_mode", "_on_by_remote"):
+            self._current_swing_mode = swing_mode
+            if self._hvac_mode != HVACMode.OFF:
+                await self.send_command()
 
     async def async_turn_off(self) -> None:
         """Turn off."""
@@ -416,26 +434,34 @@ class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
             await self.async_set_hvac_mode(self._operation_modes[1])
 
     async def send_command(self) -> None:
-        """Send the code matching the current mode/fan/swing/temperature."""
+        """Send the code matching the current mode/fan/swing/temperature.
+
+        Raises HomeAssistantError if the command cannot be delivered, so the
+        caller does not publish a state that was never transmitted.
+        """
         async with self._temp_lock:
-            try:
-                self._on_by_remote = False
+            self._on_by_remote = False
 
-                if self._hvac_mode == HVACMode.OFF:
-                    await self._controller.send(self._commands["off"])
-                    return
+            if self._hvac_mode == HVACMode.OFF:
+                off_command = self._commands.get("off")
+                if not is_recorded(off_command):
+                    raise HomeAssistantError(
+                        f"Device code {self._device_code} has no 'off' code "
+                        "recorded, so this device cannot be turned off through "
+                        "Home Assistant"
+                    )
+                await self._controller.send(off_command)
+                return
 
-                # Resolved before the 'on' code is sent, so a device file that
-                # cannot express this state does not leave the unit switched on.
-                command = self._resolve_command()
+            # Resolved before the 'on' code is sent, so a device file that
+            # cannot express this state does not leave the unit switched on.
+            command = self._resolve_command()
 
-                if "on" in self._commands:
-                    await self._controller.send(self._commands["on"])
-                    await asyncio.sleep(self._delay)
+            if "on" in self._commands:
+                await self._controller.send(self._commands["on"])
+                await asyncio.sleep(self._delay)
 
-                await self._controller.send(command)
-            except Exception:
-                _LOGGER.exception("Error sending command to %s", self._controller_data)
+            await self._controller.send(command)
 
     def _resolve_command(self) -> Any:
         """Return the code for the current state, tolerating sparse files.
@@ -446,18 +472,32 @@ class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
         goes and use the first code found.
         """
         node = _select(
-            self._commands, self._hvac_mode, "operation mode", self._device_code
+            self._commands,
+            self._hvac_mode,
+            "operation mode",
+            self._device_code,
+            self._operation_modes,
         )
         if not isinstance(node, dict):
             return node
 
-        node = _select(node, self._current_fan_mode, "fan mode", self._device_code)
+        node = _select(
+            node,
+            self._current_fan_mode,
+            "fan mode",
+            self._device_code,
+            self._fan_modes,
+        )
         if not isinstance(node, dict):
             return node
 
         if self._support_swing:
             node = _select(
-                node, self._current_swing_mode, "swing mode", self._device_code
+                node,
+                self._current_swing_mode,
+                "swing mode",
+                self._device_code,
+                self._swing_modes,
             )
             if not isinstance(node, dict):
                 return node
@@ -535,7 +575,13 @@ class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
             _LOGGER.error("Unable to update from humidity sensor: %s", ex)
 
 
-def _select(node: Any, key: str, label: str, device_code: int) -> Any:
+def _select(
+    node: Any,
+    key: str,
+    label: str,
+    device_code: int,
+    order: list[str] | None = None,
+) -> Any:
     """Return ``node[key]``, substituting another entry when the key is absent.
 
     Device files routinely omit fan and swing modes under 'dry' and 'fan_only'
@@ -564,7 +610,8 @@ def _select(node: Any, key: str, label: str, device_code: int) -> Any:
             f"Device code {device_code} has no {label} to select {key!r} from"
         )
 
-    substitute, value = next(iter(candidates.items()))
+    substitute = _nearest_key(candidates, key, order)
+    value = candidates[substitute]
 
     if len(candidates) == 1:
         _LOGGER.debug(
@@ -586,6 +633,27 @@ def _select(node: Any, key: str, label: str, device_code: int) -> Any:
         )
 
     return value
+
+
+def _nearest_key(candidates: dict[str, Any], key: str, order: list[str] | None) -> str:
+    """Return the candidate closest to ``key`` in the device file's own ordering.
+
+    'fanModes' and 'swingModes' are ordered lists, so when the requested one is
+    missing the neighbouring entry is the best stand-in — substituting whichever
+    key happened to be written first could swap the lowest fan speed for the
+    highest.
+    """
+    if order and key in order:
+        target = order.index(key)
+        ranked = [
+            (abs(order.index(name) - target), position, name)
+            for position, name in enumerate(candidates)
+            if name in order
+        ]
+        if ranked:
+            return min(ranked)[2]
+
+    return next(iter(candidates))
 
 
 def _select_temperature(node: Any, target: float, device_code: int) -> Any:
@@ -630,9 +698,14 @@ def _select_temperature(node: Any, target: float, device_code: int) -> Any:
 
 
 def _device_temperature_unit(
-    device_data: dict[str, Any], max_temperature: float
+    device_data: dict[str, Any], max_temperature: float, device_code: int
 ) -> str:
-    """Return the temperature unit a device file's codes were recorded in."""
+    """Return the temperature unit a device file's codes were recorded in.
+
+    Every shipped file that records Fahrenheit says so in 'temperatureUnit', and
+    the validator enforces that. The range check below is only reached by a
+    hand-written file, so it warns rather than deciding quietly.
+    """
     declared = str(device_data.get("temperatureUnit", "")).upper()
     if declared in ("F", "°F", UnitOfTemperature.FAHRENHEIT):
         return UnitOfTemperature.FAHRENHEIT
@@ -640,5 +713,13 @@ def _device_temperature_unit(
         return UnitOfTemperature.CELSIUS
 
     if max_temperature > _FAHRENHEIT_THRESHOLD:
+        _LOGGER.warning(
+            "Device code %s declares no temperatureUnit and its maximum "
+            "temperature is %s, which is too high to be Celsius, so it is read "
+            'as Fahrenheit. Add "temperatureUnit": "C" to the device file, or '
+            "set the temperature_unit option, if that is wrong",
+            device_code,
+            max_temperature,
+        )
         return UnitOfTemperature.FAHRENHEIT
     return UnitOfTemperature.CELSIUS

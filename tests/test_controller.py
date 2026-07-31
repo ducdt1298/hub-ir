@@ -7,11 +7,10 @@ import json
 
 import pytest
 
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-
 from custom_components.broadlink_ir import Helper
 from custom_components.broadlink_ir.controller import get_controller
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .conftest import payloads
 
@@ -95,9 +94,7 @@ async def test_unrecorded_command_is_rejected(
     assert sent_commands == []
 
 
-async def test_bad_hex_command_is_rejected(
-    hass: HomeAssistant, sent_commands
-) -> None:
+async def test_bad_hex_command_is_rejected(hass: HomeAssistant, sent_commands) -> None:
     """A malformed Hex code raises instead of sending garbage."""
     controller = get_controller(hass, "Broadlink", "Hex", "remote.rm4", 0.5)
 
@@ -151,9 +148,7 @@ async def test_loader_reports_a_download_failure(
     assert not (codes_dir / "codes" / "climate" / "4244.json").exists()
 
 
-async def test_loader_reports_invalid_json(
-    hass: HomeAssistant, codes_dir
-) -> None:
+async def test_loader_reports_invalid_json(hass: HomeAssistant, codes_dir) -> None:
     """A corrupt device file names itself in the error."""
     path = codes_dir / "codes" / "climate" / "4245.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -166,9 +161,9 @@ async def test_loader_reports_invalid_json(
 @pytest.mark.parametrize(
     "code",
     [
-        "JgBQAA",       # 6 chars, needs '=='
-        "JgBQAAA",      # 7 chars, needs '='
-        "JgBQAAAA",     # already a multiple of 4
+        "JgBQAA",  # 6 chars, needs '=='
+        "JgBQAAA",  # 7 chars, needs '='
+        "JgBQAAAA",  # already a multiple of 4
     ],
 )
 async def test_unpadded_base64_codes_are_accepted(

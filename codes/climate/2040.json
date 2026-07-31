@@ -10,6 +10,7 @@
   "supportedController": "Broadlink",
   "minTemperature": 62,
   "maxTemperature": 86,
+  "temperatureUnit": "F",
   "precision": 1,
   "operationModes": [
     "cool",

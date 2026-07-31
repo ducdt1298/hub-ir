@@ -7,6 +7,7 @@
     "commandsEncoding": "Base64",
     "minTemperature": 61.0,
     "maxTemperature": 86.0,
+    "temperatureUnit": "F",
     "precision": 1.0,
     "operationModes": [
       "auto",

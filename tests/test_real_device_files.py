@@ -12,14 +12,13 @@ from pathlib import Path
 
 import pytest
 
+from custom_components.broadlink_ir.climate import _select, _select_temperature
+from custom_components.broadlink_ir.controller import _decode_like_broadlink
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
 from homeassistant.components.climate.const import HVAC_MODES
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-
-from custom_components.broadlink_ir.climate import _select, _select_temperature
-from custom_components.broadlink_ir.controller import _decode_like_broadlink
 
 from .conftest import payloads
 
@@ -97,9 +96,7 @@ def test_device_file_is_broadlink_and_parses(path: Path) -> None:
     assert data["commands"]
 
 
-@pytest.mark.parametrize(
-    "path", CLIMATE_FILES, ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("path", CLIMATE_FILES, ids=lambda p: p.stem)
 def test_every_climate_combination_resolves(path: Path) -> None:
     """Each selectable mode/fan/swing/temperature resolves to a code."""
     data = load(path)
@@ -128,8 +125,10 @@ def test_every_climate_combination_resolves(path: Path) -> None:
         node = _select(commands, mode, "operation mode", device_code)
 
         for fan_mode in fan_modes:
-            fan_node = node if not isinstance(node, dict) else _select(
-                node, fan_mode, "fan mode", device_code
+            fan_node = (
+                node
+                if not isinstance(node, dict)
+                else _select(node, fan_mode, "fan mode", device_code)
             )
 
             for swing_mode in swing_modes or [None]:
@@ -259,7 +258,7 @@ def test_every_code_decodes_the_way_broadlink_will(path: Path) -> None:
             where = "/".join(tree_path)
             try:
                 _decode_like_broadlink(entry)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 found_corrupt.add((platform, code, where))
 
     known = {entry for entry in CORRUPT_CODES if entry[:2] == (platform, code)}

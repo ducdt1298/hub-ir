@@ -57,10 +57,30 @@ Copy `custom_components/broadlink_ir` into your configuration directory:
 |       |-- light.py
 |       |-- media_player.py
 |       |-- manifest.json
+|       |-- codes/          <- created on first use, see below
 ```
 
 Then restart Home Assistant. Adding `broadlink_ir:` to `configuration.yaml` is
 optional — the platforms work without it.
+
+### Where the device files come from
+
+The 407 device files are **not** part of the installed integration: at 45 MB they
+would dominate it. Home Assistant downloads each one the first time you use its
+device code and caches it under
+`custom_components/broadlink_ir/codes/<platform>/`. HACS preserves that cache
+across updates.
+
+So the first use of a device code needs Home Assistant to reach
+`raw.githubusercontent.com`. For an air-gapped install, or to use your own
+recording, copy the JSON there yourself — a file that is already present is never
+downloaded:
+
+```
+custom_components/broadlink_ir/codes/climate/1000.json
+```
+
+Browse the files in [codes/](codes/) to find one to copy.
 
 ## Configuration
 
@@ -104,6 +124,16 @@ Because the platform name changes, entities are recreated. If you set
 The `check_updates` and `update_branch` options are gone. If you leave them in
 place, setup still succeeds and logs a warning telling you to remove them.
 
+Two behaviour changes worth knowing about before you migrate:
+
+- `controller_data` must now be a `remote.*` entity_id. It always had to be one
+  for it to work; the difference is that a wrong value is now rejected at startup
+  instead of failing silently on every command.
+- A command that cannot be sent now makes the service call **fail** rather than
+  only writing to the log. An automation that used to carry on regardless will
+  now stop at that step — which is the point, but it is a change. See
+  [Known limitations](#known-limitations).
+
 ## What changed against upstream
 
 **Fixed — the integration now loads and runs on current Home Assistant**
@@ -137,6 +167,31 @@ place, setup still succeeds and logs a warning telling you to remove them.
 - The Pronto conversion's pulse-to-tick step truncates rather than rounds.
   That reads like a redundant `int()` cast, so it is now pinned byte-for-byte by
   a test — changing it would silently alter every emitted timing.
+
+**Fixed — a failed command no longer looks like a successful one**
+
+- Every platform caught and logged send failures, then published the state
+  anyway. With the Broadlink unplugged, turning the air conditioner on left the
+  UI showing `cool` while nothing had been transmitted. Failures now reach the
+  caller, so the service call fails, and the entity rolls back to the state it
+  last actually sent. IR remains open-loop — nothing can confirm the device
+  obeyed — but a command that never left Home Assistant is no longer reported as
+  if it had.
+- `controller_data` pointing at an entity that does not exist was completely
+  silent: `remote.send_command` matches no entity and Home Assistant only logs
+  that the reference is missing. It is now validated as a `remote.*` entity_id,
+  and a missing or unavailable remote raises an error naming it.
+- Omitting `unique_id` silently costs the entity its registry entry, and with it
+  renaming, area assignment, hiding and every other UI customisation. Setup now
+  says so instead of leaving you to discover it.
+- A fan switched on by its own remote reported `percentage: 0` while also
+  reporting `on`. It now reports the speed as unknown, which is what it is.
+- When a device file omitted the requested fan or swing mode, the substitute was
+  whichever key happened to be written first — potentially the highest fan speed
+  in place of the lowest. It is now the nearest entry in the file's own ordering.
+- All 13 Fahrenheit climate files now declare `"temperatureUnit": "F"` instead of
+  leaving the integration to infer it from the temperature range. The validator
+  rejects any new file that leaves that to a guess.
 
 **Fixed — long-standing bugs**
 
@@ -181,6 +236,29 @@ place, setup still succeeds and logs a warning telling you to remove them.
 - `climate/3380`: fixed fan-speed and temperature keys that did not match the
   file's own declarations.
 
+## Known limitations
+
+**A command that fails is reported; a command the device ignores is not.** IR is
+open-loop. Once a code leaves the Broadlink there is no way to know whether the
+air conditioner was listening, so these entities assume it was — that is what
+`iot_class: assumed_state` declares. Add a `power_sensor` if you need the state to
+reflect reality. What *is* now detected is a command that never got sent at all:
+an unavailable remote, a wrong `controller_data`, a corrupt or missing code.
+
+**Entities are not grouped into devices.** Home Assistant creates a device only
+for entities belonging to a config entry, and these platforms are configured in
+YAML. `entity_platform` guards device registration with `if self.config_entry`,
+and `device_registry.async_get_or_create` requires a `config_entry_id`, so
+returning `device_info` would have no effect. Grouping these into devices needs a
+config flow, which would change how every user configures the integration; it is
+not something this fork does today. `unique_id` still gives each entity a registry
+entry, which is what renaming and area assignment actually need.
+
+**Climate sends two codes.** For device files with a separate `on` code, the mode
+command follows it after `delay`. If the second send fails the unit may be on
+while Home Assistant reports it off. Nothing can close that gap without feedback
+from the device.
+
 ## Development
 
 Home Assistant only runs on Linux, so the tests run in a container:
@@ -197,7 +275,15 @@ Validate the device database (no Home Assistant needed):
 python scripts/validate_codes.py
 ```
 
-The suite has 1258 tests. Beyond per-platform behaviour it covers:
+Lint and format-check, using `ruff.toml` so the result does not depend on which
+flags were typed:
+
+```sh
+scripts/lint.sh          # check
+scripts/lint.sh --fix    # apply what ruff can fix safely
+```
+
+The suite has 1297 tests. Beyond per-platform behaviour it covers:
 
 - state restored after a restart, including values the device file can no longer
   express;
@@ -206,7 +292,10 @@ The suite has 1258 tests. Beyond per-platform behaviour it covers:
   the way the Broadlink integration will decode it;
 - the shapes that only occur in real data — swing modes, Pronto encoding, a fan
   with `forward`/`reverse` instead of `default`, a light with no colour
-  temperature, a media player with no sources.
+  temperature, a media player with no sources;
+- what happens when a command cannot be delivered: a missing or unavailable
+  remote, a code that fails mid-send, a device file with the command absent. Each
+  platform is checked to fail the service call and keep the state it last sent.
 
 ### Verified versions
 

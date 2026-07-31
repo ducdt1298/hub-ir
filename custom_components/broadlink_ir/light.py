@@ -17,13 +17,20 @@ from homeassistant.components.light import (
 )
 from homeassistant.const import CONF_NAME, STATE_OFF, STATE_ON
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from . import Helper, is_recorded
+from . import (
+    Helper,
+    is_recorded,
+    optimistic_state,
+    remote_entity_id,
+    warn_if_no_unique_id,
+)
 from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,7 +57,7 @@ PLATFORM_SCHEMA = LIGHT_PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_UNIQUE_ID): cv.string,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Required(CONF_DEVICE_CODE): cv.positive_int,
-        vol.Required(CONF_CONTROLLER_DATA): cv.string,
+        vol.Required(CONF_CONTROLLER_DATA): remote_entity_id,
         vol.Optional(CONF_DELAY, default=DEFAULT_DELAY): cv.positive_float,
         vol.Optional(CONF_POWER_SENSOR): cv.entity_id,
     }
@@ -66,6 +73,8 @@ async def async_setup_platform(
     """Set up the IR Light platform."""
     device_code = config[CONF_DEVICE_CODE]
     device_data = await Helper.load_device_data(hass, "light", device_code)
+
+    warn_if_no_unique_id("light", config)
 
     async_add_entities([BroadlinkIRLight(hass, config, device_data)])
 
@@ -227,6 +236,13 @@ class BroadlinkIRLight(LightEntity, RestoreEntity):
 
     async def async_turn_on(self, **params: Any) -> None:
         """Turn the light on, optionally changing brightness/color temp."""
+        async with optimistic_state(
+            self, "_power", "_brightness", "_colortemp", "_on_by_remote"
+        ):
+            await self._async_turn_on(**params)
+
+    async def _async_turn_on(self, **params: Any) -> None:
+        """Do the work of turning on, so the caller can roll back on failure."""
         did_something = False
         # Turn the light on if off
         if self._power != STATE_ON and not self._on_by_remote:
@@ -310,32 +326,29 @@ class BroadlinkIRLight(LightEntity, RestoreEntity):
             self._power = STATE_ON
             await self.send_command(CMD_POWER_ON)
 
-        self.async_write_ha_state()
-
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
-        self._power = STATE_OFF
-        await self.send_command(CMD_POWER_OFF)
-        self.async_write_ha_state()
+        async with optimistic_state(self, "_power", "_on_by_remote"):
+            self._power = STATE_OFF
+            await self.send_command(CMD_POWER_OFF)
 
     async def send_command(self, cmd: str, count: int = 1) -> None:
-        """Send a named command from the device file ``count`` times."""
+        """Send a named command from the device file ``count`` times.
+
+        Raises HomeAssistantError if the command cannot be delivered, so the
+        caller does not publish a state that was never transmitted.
+        """
         if not is_recorded(self._commands.get(cmd)):
-            _LOGGER.error(
-                "Device code %s has no code recorded for '%s'",
-                self._device_code,
-                cmd,
+            raise HomeAssistantError(
+                f"Device code {self._device_code} has no code recorded for "
+                f"'{cmd}', so that cannot be controlled from Home Assistant"
             )
-            return
         _LOGGER.debug("Sending %s remote command %s times", cmd, count)
         remote_cmd = self._commands.get(cmd)
         async with self._temp_lock:
             self._on_by_remote = False
-            try:
-                for _ in range(count):
-                    await self._controller.send(remote_cmd)
-            except Exception:
-                _LOGGER.exception("Error sending command to %s", self._controller_data)
+            for _ in range(count):
+                await self._controller.send(remote_cmd)
 
     async def _async_power_sensor_changed(
         self, event: Event[EventStateChangedData]

@@ -7,7 +7,9 @@ Broadlink universal remote and a JSON database of device codes.
 from __future__ import annotations
 
 import binascii
+from collections.abc import AsyncIterator
 import contextlib
+from http import HTTPStatus
 import json
 import logging
 import os
@@ -16,6 +18,7 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -28,6 +31,10 @@ DOMAIN = "broadlink_ir"
 VERSION = "2.0.0"
 
 COMPONENT_ABS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# In a Broadlink IR packet a pulse below this is one byte; at or above it the
+# pulse is escaped with 0x00 and follows as a big-endian 16-bit value.
+_SINGLE_BYTE_PULSE_LIMIT = 256
 
 CODES_BASE_URL = (
     "https://raw.githubusercontent.com/"
@@ -73,6 +80,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
+def remote_entity_id(value: Any) -> str:
+    """Validate that controller_data names a remote entity.
+
+    A wrong domain here is silent at runtime: remote.send_command matches no
+    entity and Home Assistant only logs that the reference is missing.
+    """
+    entity_id = cv.entity_id(value)
+    if entity_id.split(".")[0] != "remote":
+        raise vol.Invalid(
+            f"controller_data must be the entity_id of a Broadlink remote "
+            f"(remote.something), got '{entity_id}'"
+        )
+    return entity_id
+
+
 def is_recorded(command: Any) -> bool:
     """Return whether a device file entry holds an actual code.
 
@@ -84,6 +106,51 @@ def is_recorded(command: Any) -> bool:
     if isinstance(command, list):
         return bool(command) and all(is_recorded(entry) for entry in command)
     return False
+
+
+def warn_if_no_unique_id(platform: str, config: ConfigType) -> None:
+    """Warn that omitting unique_id costs the entity its registry entry.
+
+    Home Assistant only registers entities that have one, so without it the
+    entity cannot be renamed, assigned to an area, hidden, or customised in any
+    way from the UI.
+    """
+    if config.get("unique_id"):
+        return
+
+    _LOGGER.warning(
+        "The Broadlink IR %s named '%s' has no unique_id, so Home Assistant "
+        "cannot register it: it cannot be renamed, assigned to an area, or "
+        "customised from the UI. Add a unique_id to the platform configuration "
+        "to enable those",
+        platform,
+        config.get(CONF_NAME),
+    )
+
+
+@contextlib.asynccontextmanager
+async def optimistic_state(entity: Any, *attributes: str) -> AsyncIterator[None]:
+    """Publish an assumed state, but only if the command was actually sent.
+
+    IR is open-loop, so these entities assume their command took effect: there
+    is no feedback to confirm it. That is what ``iot_class: assumed_state``
+    means, and it is the right model.
+
+    A send that *fails*, though, is a different thing. If the remote is
+    unavailable or the code is corrupt we know nothing reached the device, so
+    leaving the entity advertising the state it was asked for would be a lie.
+    Restore the attributes it changed and let the error reach the caller, so the
+    service call fails instead of silently doing nothing.
+    """
+    snapshot = {name: getattr(entity, name) for name in attributes}
+    try:
+        yield
+    except Exception:
+        for name, value in snapshot.items():
+            setattr(entity, name, value)
+        entity.async_write_ha_state()
+        raise
+    entity.async_write_ha_state()
 
 
 def _has_any_code(commands: Any) -> bool:
@@ -168,7 +235,7 @@ class Helper:
         session = async_get_clientsession(hass)
         try:
             async with session.get(source) as response:
-                if response.status != 200:
+                if response.status != HTTPStatus.OK:
                     raise HomeAssistantError(
                         f"Got HTTP {response.status} downloading {source}. Check "
                         "that the device code exists, or place the file manually "
@@ -206,11 +273,15 @@ class Helper:
         for pulse in pulses:
             # Truncation, not rounding: this is the conversion the Broadlink
             # protocol implementations use, and it changes the emitted timings.
-            pulse = int(pulse * 269 / 8192)
+            # Deliberately rebinding the loop variable, so the pinned conversion
+            # stays on one line and cannot drift.
+            pulse = int(pulse * 269 / 8192)  # noqa: PLW2901
 
-            if pulse < 256:
+            if pulse < _SINGLE_BYTE_PULSE_LIMIT:
                 array += bytearray(struct.pack(">B", pulse))
             else:
+                # Longer pulses are escaped with 0x00 and sent as a big-endian
+                # 16-bit value.
                 array += bytearray([0x00])
                 array += bytearray(struct.pack(">H", pulse))
 

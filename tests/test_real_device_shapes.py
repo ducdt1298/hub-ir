@@ -15,11 +15,11 @@ from pathlib import Path
 import pytest
 
 from homeassistant.components.climate import (
+    ATTR_HVAC_MODE,
     ATTR_SWING_MODE,
     DOMAIN as CLIMATE_DOMAIN,
     SERVICE_SET_HVAC_MODE,
     SERVICE_SET_SWING_MODE,
-    ATTR_HVAC_MODE,
 )
 from homeassistant.components.fan import (
     ATTR_DIRECTION,
@@ -43,6 +43,7 @@ from homeassistant.const import (
     STATE_ON,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .conftest import payloads
 
@@ -109,7 +110,11 @@ async def test_real_swing_mode_file_sends_per_swing_codes(
     sent_commands.clear()
 
     # A different swing mode must produce a different code.
-    other = swing_modes[-1] if state.attributes["swing_mode"] != swing_modes[-1] else swing_modes[0]
+    other = (
+        swing_modes[-1]
+        if state.attributes["swing_mode"] != swing_modes[-1]
+        else swing_modes[0]
+    )
     await hass.services.async_call(
         CLIMATE_DOMAIN,
         SERVICE_SET_SWING_MODE,
@@ -232,7 +237,10 @@ async def test_real_light_without_colour_temperature(
     assert ColorMode.UNKNOWN not in state.attributes[ATTR_SUPPORTED_COLOR_MODES]
 
     await hass.services.async_call(
-        LIGHT_DOMAIN, SERVICE_TURN_ON, {ATTR_ENTITY_ID: "light.plain_light"}, blocking=True
+        LIGHT_DOMAIN,
+        SERVICE_TURN_ON,
+        {ATTR_ENTITY_ID: "light.plain_light"},
+        blocking=True,
     )
     assert hass.states.get("light.plain_light").state == STATE_ON
     assert payloads(sent_commands)
@@ -312,11 +320,12 @@ async def test_the_empty_light_file_is_refused(
 async def test_a_corrupt_code_in_a_real_file_is_refused_not_transmitted(
     hass: HomeAssistant, real_codes, sent_commands, setup_platform, caplog
 ) -> None:
-    """Selecting a corrupt code logs it and sends nothing.
+    """Selecting a corrupt code fails the call and sends nothing.
 
     fan/1000's reverse/lowest entry cannot be decoded even after re-padding.
     Upstream handed it to the Broadlink integration, which raised a bare
-    binascii error; here the entity refuses it and says why.
+    binascii error; here the entity refuses it, says why, and does not pretend
+    the speed changed.
     """
     await setup_platform(
         FAN_DOMAIN,
@@ -327,18 +336,23 @@ async def test_a_corrupt_code_in_a_real_file_is_refused_not_transmitted(
             "controller_data": "remote.broadlink",
         },
     )
+    before = hass.states.get("fan.corrupt_fan")
 
     # The slowest speed maps onto the corrupt reverse/lowest code.
-    await hass.services.async_call(
-        FAN_DOMAIN,
-        "set_percentage",
-        {ATTR_ENTITY_ID: "fan.corrupt_fan", ATTR_PERCENTAGE: 1},
-        blocking=True,
-    )
+    with pytest.raises(HomeAssistantError, match="not valid base64"):
+        await hass.services.async_call(
+            FAN_DOMAIN,
+            "set_percentage",
+            {ATTR_ENTITY_ID: "fan.corrupt_fan", ATTR_PERCENTAGE: 1},
+            blocking=True,
+        )
 
     assert payloads(sent_commands) == []
-    assert "not valid base64" in caplog.text
-    assert "corrupt" in caplog.text
+
+    # Nothing was transmitted, so the entity still reports what it last sent.
+    after = hass.states.get("fan.corrupt_fan")
+    assert after.state == before.state
+    assert after.attributes[ATTR_PERCENTAGE] == before.attributes[ATTR_PERCENTAGE]
 
     # The entity stays usable: a good speed still transmits.
     await hass.services.async_call(

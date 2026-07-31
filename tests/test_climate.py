@@ -43,9 +43,7 @@ async def climate(hass, write_device_file, sent_commands, setup_platform):
     return sent_commands
 
 
-async def test_entity_created_from_device_file(
-    hass: HomeAssistant, climate
-) -> None:
+async def test_entity_created_from_device_file(hass: HomeAssistant, climate) -> None:
     """The entity exposes what the device file declares."""
     state = hass.states.get(ENTITY_ID)
 
@@ -63,9 +61,7 @@ async def test_entity_created_from_device_file(
     assert state.attributes["device_code"] == 9000
 
 
-async def test_set_hvac_mode_sends_matching_code(
-    hass: HomeAssistant, climate
-) -> None:
+async def test_set_hvac_mode_sends_matching_code(hass: HomeAssistant, climate) -> None:
     """Selecting a mode sends the code for that mode/fan/temperature."""
     await hass.services.async_call(
         CLIMATE_DOMAIN,
@@ -197,7 +193,8 @@ async def test_fahrenheit_device_file_declares_fahrenheit(
     }
     write_device_file("climate", 9001, data)
     await setup_platform(
-        CLIMATE_DOMAIN, {**CONFIG, "name": "F AC", "unique_id": "f_ac", "device_code": 9001}
+        CLIMATE_DOMAIN,
+        {**CONFIG, "name": "F AC", "unique_id": "f_ac", "device_code": 9001},
     )
 
     entity = get_entity(hass, "climate.f_ac")
@@ -301,11 +298,20 @@ async def test_on_command_is_sent_before_the_state_code(
     hass: HomeAssistant, write_device_file, sent_commands, setup_platform
 ) -> None:
     """A device file with a separate 'on' code sends it first."""
-    data = {**CLIMATE_DEVICE_DATA, "commands": {**CLIMATE_DEVICE_DATA["commands"], "on": "b24="}}
+    data = {
+        **CLIMATE_DEVICE_DATA,
+        "commands": {**CLIMATE_DEVICE_DATA["commands"], "on": "b24="},
+    }
     write_device_file("climate", 9005, data)
     await setup_platform(
         CLIMATE_DOMAIN,
-        {**CONFIG, "name": "On AC", "unique_id": "on_ac", "device_code": 9005, "delay": 0},
+        {
+            **CONFIG,
+            "name": "On AC",
+            "unique_id": "on_ac",
+            "device_code": 9005,
+            "delay": 0,
+        },
     )
 
     await hass.services.async_call(
@@ -397,9 +403,7 @@ async def test_missing_temperature_uses_the_closest_recorded_one(
     assert payloads(sparse) == [["b64:aGVhdDE2"]]
 
 
-async def test_present_fan_mode_is_not_substituted(
-    hass: HomeAssistant, sparse
-) -> None:
+async def test_present_fan_mode_is_not_substituted(hass: HomeAssistant, sparse) -> None:
     """A fan mode the file does record is used, not substituted."""
     await hass.services.async_call(
         CLIMATE_DOMAIN,

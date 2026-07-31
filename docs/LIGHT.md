@@ -1,16 +1,16 @@
 <p align="center">
-    <a href="#"><img src="assets/smartir_light.png" width="350" alt="SmartIR light"></a>
+    <a href="#"><img src="assets/smartir_light.png" width="350" alt="Broadlink IR light"></a>
 </p>
 
 For this platform to work, we need a .json file containing all the necessary IR or RF commands.
-Find your device's brand code [here](LIGHT.md#available-codes-for-light-devices) and add the number in the `device_code` field. The component will download it to the correct folder.  If your device is not working, you will need to learn your own codes and place the .json file in `smartir/codes/light` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
+Find your device's brand code [here](LIGHT.md#available-codes-for-light-devices) and add the number in the `device_code` field. The component will download it to the correct folder.  If your device is not working, you will need to learn your own codes and place the .json file in `broadlink_ir/codes/light` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
 
 ## Configuration variables
 
 **name** (Optional): The name of the device<br />
 **unique_id** (Optional): An ID that uniquely identified this device. If two devices have the same unique ID, Home Assistant will raise an exception.<br />
 **device_code** (Required): ...... (Accepts only positive numbers)<br />
-**controller_data** (Required): The data required for the controller to function. Enter the entity_id of the Broadlink or Xiaomi IR controller, or the MQTT topic on which to send commands.<br />
+**controller_data** (Required): The `entity_id` of the Broadlink remote **(must be an already configured device)**.<br />
 **delay** (Optional): Adjusts the delay in seconds between multiple commands. The default is 0.5 <br />
 **power_sensor** (Optional): *entity_id* for a sensor that monitors whether your device is actually On or Off. This may be a power monitor sensor. (Accepts only on/off states)<br />
 
@@ -19,10 +19,10 @@ Find your device's brand code [here](LIGHT.md#available-codes-for-light-devices)
 Add a Broadlink RM device named "Bedroom" via config flow (read the [docs](https://www.homeassistant.io/integrations/broadlink/)).
 
 ```yaml
-smartir:
+broadlink_ir:
 
 light:
-  - platform: smartir
+  - platform: broadlink_ir
     name: Bedroom Ceiling Light
     unique_id: bedroom_ceiling_light
     device_code: 1000
@@ -45,7 +45,7 @@ separate small and dim nightlight bulb inside the fixture).
 ## Available codes for Light devices
 
 The following are the code files created by the amazing people in the community. Before you start creating your own code file, try if one of them works for your device. **Please open an issue if your device is working and not included in the supported models.**
-Contributing your own code files is welcome. However, we do not accept incomplete files as well as files related to MQTT controllers.
+Contributing your own code files is welcome. Incomplete files are not accepted: run `python scripts/validate_codes.py` before opening a pull request.
 
 #### Iris Ohyama
 

@@ -1,0 +1,20 @@
+# Test image: Home Assistant plus its test harness, baked in so repeat runs
+# don't reinstall. Built by scripts/run_tests.sh.
+ARG PYTHON_VERSION=3.14
+# Older Home Assistant releases pin dependency versions that predate wheels for
+# the current interpreter, so those need a compiler: pass IMAGE_VARIANT="" to
+# get the full image instead of slim.
+ARG IMAGE_VARIANT=-slim
+FROM python:${PYTHON_VERSION}${IMAGE_VARIANT}
+
+ARG HA_VERSION=2026.7.4
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN pip install --no-cache-dir --root-user-action=ignore \
+        "homeassistant==${HA_VERSION}" \
+        pytest-homeassistant-custom-component
+
+WORKDIR /repo
+ENTRYPOINT ["python", "-m", "pytest"]

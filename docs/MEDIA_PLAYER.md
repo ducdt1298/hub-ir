@@ -1,109 +1,31 @@
 <p align="center">
-  <a href="#"><img src="assets/smartir_mediaplayer.png" width="350" alt="SmartIR Media Player"></a>
+  <a href="#"><img src="assets/smartir_mediaplayer.png" width="350" alt="Broadlink IR Media Player"></a>
 </p>
 
 For this platform to work, we need a .json file containing all the necessary IR commands.
-Find your device's brand code [here](MEDIA_PLAYER.md#available-codes-for-tv-devices) and add the number in the `device_code` field. The component will download it to the correct folder. If your device is not working, you will need to learn your own codes and place the .json file in `smartir/codes/media_player/` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
+Find your device's brand code [here](MEDIA_PLAYER.md#available-codes-for-tv-devices) and add the number in the `device_code` field. The component will download it to the correct folder. If your device is not working, you will need to learn your own codes and place the .json file in `broadlink_ir/codes/media_player/` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
 
 ## Configuration variables:
 **name** (Optional): The name of the device<br />
 **unique_id** (Optional): An ID that uniquely identifies this device. If two devices have the same unique ID, Home Assistant will raise an exception.<br />
 **device_code** (Required): ...... (Accepts only positive numbers)<br />
-**controller_data** (Required): The data required for the controller to function. Enter the IP address of the Broadlink device **(must be an already configured device)**, or the entity id of the Xiaomi IR controller, or the MQTT topic on which to send commands.<br />
+**controller_data** (Required): The `entity_id` of the Broadlink remote **(must be an already configured device)**.<br />
 **delay** (Optional): Adjusts the delay in seconds between multiple commands. The default is 0.5 <br />
 **power_sensor** (Optional): *entity_id* for a sensor that monitors whether your device is actually On or Off. This may be a power monitor sensor. (Accepts only on/off states)<br />
 **source_names** (Optional): Override the names of sources as displayed in HomeAssistant (see below)<br />
 
-## Example (using broadlink controller):
+## Example
 Add a Broadlink RM device named "Bedroom" via config flow (read the [docs](https://www.home-assistant.io/integrations/broadlink/)).
 
 ```yaml
-smartir:
+broadlink_ir:
 
 media_player:
-  - platform: smartir
+  - platform: broadlink_ir
     name: Living room TV
     unique_id: living_room_tv
     device_code: 1000
     controller_data: remote.bedroom_remote
-    power_sensor: binary_sensor.tv_power
-```
-
-## Example (using xiaomi controller):
-```yaml
-smartir:
-
-remote:
-  - platform: xiaomi_miio
-    host: 192.168.10.10
-    token: YOUR_TOKEN
-    
-media_player:
-  - platform: smartir
-    name: Living room TV
-    unique_id: living_room_tv
-    device_code: 2000
-    controller_data: remote.xiaomi_miio_192_168_10_10
-    power_sensor: binary_sensor.tv_power
-```
-
-## Example (using mqtt controller):
-```yaml
-smartir:
-
-media_player:
-  - platform: smartir
-    name: Living room TV
-    unique_id: living_room_tv
-    device_code: 3000
-    controller_data: home-assistant/living-room-tv/command
-    power_sensor: binary_sensor.tv_power
-```
-
-## Example (using LOOKin controller):
-```yaml
-smartir:
-
-media_player:
-  - platform: smartir
-    name: Living room TV
-    unique_id: living_room_tv
-    device_code: 4000
-    controller_data: 192.168.10.10
-    power_sensor: binary_sensor.tv_power
-```
-
-## Example (using ESPHome):
-ESPHome configuration example:
-```yaml
-esphome:
-  name: my_espir
-  platform: ESP8266
-  board: esp01_1m
-
-api:
-  services:
-    - service: send_raw_command
-      variables:
-        command: int[]
-      then:
-        - remote_transmitter.transmit_raw:
-            code: !lambda 'return command;'
-
-remote_transmitter:
-  pin: GPIO14
-  carrier_duty_percent: 50%
-```
-HA configuration.yaml:
-```yaml
-smartir:
-
-media_player:
-  - platform: smartir
-    name: Living room TV
-    unique_id: living_room_tv
-    device_code: 2000
-    controller_data: my_espir_send_raw_command
     power_sensor: binary_sensor.tv_power
 ```
 
@@ -112,7 +34,7 @@ Source names in device files are usually set to the name that the media player u
 
 ```yaml
 media_player:
-  - platform: smartir
+  - platform: broadlink_ir
     name: Living room TV
     unique_id: living_room_tv
     device_code: 1000
@@ -137,7 +59,7 @@ data:
 
 ## Available codes for TV devices:
 The following are the code files created by the amazing people in the community. Before you start creating your own code file, try if one of them works for your device. **Please open an issue if your device is working and not included in the supported models.**
-Contributing to your own code files is welcome. However, we do not accept incomplete files as well as files related to MQTT controllers.
+Contributing to your own code files is welcome. Incomplete files are not accepted: run `python scripts/validate_codes.py` before opening a pull request.
 
 #### Philips
 | Code | Supported Models | Controller |
@@ -150,7 +72,6 @@ Contributing to your own code files is welcome. However, we do not accept incomp
 | Code | Supported Models | Controller |
 | ------------- | -------------------------- | ------------- |
 [1020](../codes/media_player/1020.json)|KDL-46HX800|Broadlink
-[7020](../codes/media_player/7020.json)|KDL-46EX620|ESPHome
 
 #### LG
 | Code | Supported Models | Controller |
@@ -169,7 +90,6 @@ Contributing to your own code files is welcome. However, we do not accept incomp
 [1063](../codes/media_player/1063.json)|UN55JU7500|Broadlink
 [1064](../codes/media_player/1064.json)|QE49Q7FAM|Broadlink
 [1065](../codes/media_player/1065.json)|QE65Q67RAUXRU|Broadlink
-[7060](../codes/media_player/7060.json)|UA32EH5000M|ESPHome
 
 #### Insignia
 | Code | Supported Models | Controller |
@@ -283,7 +203,6 @@ Contributing to your own code files is welcome. However, we do not accept incomp
 #### ZTE
 | Code | Supported Models | Controller |
 | ------------- | -------------------------- | ------------- |
-[7460](../codes/media_player/7460.json)| B860H | ESPHome
 
 #### Kanto
 | Code | Supported Models | Controller |
@@ -308,7 +227,6 @@ Contributing to your own code files is welcome. However, we do not accept incomp
 #### Cambridge Audio
 | Code | Supported Models | Controller |
 | ------------- | -------------------------- | ------------- |
-[1560](../codes/media_player/1560.json)|AXR100|Broadlink
 
 #### Dialog
 | Code | Supported Models | Controller |

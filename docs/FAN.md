@@ -1,16 +1,16 @@
 <p align="center">
-  <a href="#"><img src="assets/smartir_fan.png" width="350" alt="SmartIR Media Player"></a>
+  <a href="#"><img src="assets/smartir_fan.png" width="350" alt="Broadlink IR Media Player"></a>
 </p>
 
 For this platform to work, we need a .json file containing all the necessary IR or RF commands.
-Find your device's brand code [here](FAN.md#available-codes-for-fan-devices) and add the number in the `device_code` field. The compoenent will download it to the correct folder. If your device is not working, you will need to learn your own codes and place the .json file in `smartir/codes/fan/` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
+Find your device's brand code [here](FAN.md#available-codes-for-fan-devices) and add the number in the `device_code` field. The compoenent will download it to the correct folder. If your device is not working, you will need to learn your own codes and place the .json file in `broadlink_ir/codes/fan/` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
 
 ## Configuration variables
 
 **name** (Optional): The name of the device<br />
 **unique_id** (Optional): An ID that uniquely identifies this device. If two devices have the same unique ID, Home Assistant will raise an exception.<br />
 **device_code** (Required): ...... (Accepts only positive numbers)<br />
-**controller_data** (Required): The data required for the controller to function. Enter the entity_id of the Broadlink remote (must be an already configured device), or the entity id of the Xiaomi IR controller, or the MQTT topic on which to send commands.<br />
+**controller_data** (Required): The `entity_id` of the Broadlink remote (must be an already configured device).<br />
 **delay** (Optional): Adjusts the delay in seconds between multiple commands. The default is 0.5 <br />
 **power_sensor** (Optional): *entity_id* for a sensor that monitors whether your device is actually On or Off. This may be a power monitor sensor. (Accepts only on/off states)<br />
 
@@ -19,10 +19,10 @@ Find your device's brand code [here](FAN.md#available-codes-for-fan-devices) and
 Add a Broadlink RM device named "Bedroom" via config flow (read the [docs](https://www.home-assistant.io/integrations/broadlink/)).
 
 ```yaml
-smartir:
+broadlink_ir:
 
 fan:
-  - platform: smartir
+  - platform: broadlink_ir
     name: Bedroom fan
     unique_id: bedroom_fan
     device_code: 1000
@@ -30,95 +30,10 @@ fan:
     power_sensor: binary_sensor.fan_power
 ```
 
-## Example (using xiaomi controller)
-
-```yaml
-smartir:
-
-remote:
-  - platform: xiaomi_miio
-    host: 192.168.10.10
-    token: YOUR_TOKEN
-
-fan:
-  - platform: smartir
-    name: Bedroom fan
-    unique_id: bedroom_fan
-    device_code: 2000
-    controller_data: remote.xiaomi_miio_192_168_10_10
-    power_sensor: binary_sensor.fan_power
-```
-
-## Example (using mqtt controller)
-
-```yaml
-smartir:
-
-fan:
-  - platform: smartir
-    name: Bedroom fan
-    unique_id: bedroom_fan
-    device_code: 3000
-    controller_data: home-assistant/bedroom-fan/command
-    power_sensor: binary_sensor.fan_power
-```
-
-## Example (using LOOKin controller)
-
-```yaml
-smartir:
-
-fan:
-  - platform: smartir
-    name: Bedroom fan
-    unique_id: bedroom_fan
-    device_code: 4000
-    controller_data: 192.168.10.10
-    power_sensor: binary_sensor.fan_power
-```
-
-## Example (using ESPHome)
-
-ESPHome configuration example:
-
-```yaml
-esphome:
-  name: my_espir
-  platform: ESP8266
-  board: esp01_1m
-
-api:
-  services:
-    - service: send_raw_command
-      variables:
-        command: int[]
-      then:
-        - remote_transmitter.transmit_raw:
-            code: !lambda 'return command;'
-
-remote_transmitter:
-  pin: GPIO14
-  carrier_duty_percent: 50%
-```
-
-HA configuration.yaml:
-
-```yaml
-smartir:
-
-fan:
-  - platform: smartir
-    name: Bedroom fan
-    unique_id: bedroom_fan
-    device_code: 4000
-    controller_data: my_espir_send_raw_command
-    power_sensor: binary_sensor.fan_power
-```
-
 ## Available codes for Fan devices
 
 The following are the code files created by the amazing people in the community. Before you start creating your own code file, try if one of them works for your device. **Please open an issue if your device is working and not included in the supported models.**
-Contributing to your own code files is welcome. However, we do not accept incomplete files as well as files related to MQTT controllers.
+Contributing to your own code files is welcome. Incomplete files are not accepted: run `python scripts/validate_codes.py` before opening a pull request.
 
 #### Kaze
 
@@ -145,7 +60,6 @@ Contributing to your own code files is welcome. However, we do not accept incomp
 | ------------- | -------------------------- | ------------- |
 [1040](../codes/fan/1040.json)|Aria|Broadlink
 [1041](../codes/fan/1041.json)|Whitehaven DC|Broadlink
-[7040](../codes/fan/7040.json)|Aria|ESPHome
 
 #### Super Fan
 

@@ -1,4 +1,4 @@
-"""Broadlink IR fan platform (Broadlink)."""
+"""Broadlink IR fan platform."""
 
 from __future__ import annotations
 

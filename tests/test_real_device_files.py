@@ -13,12 +13,13 @@ from pathlib import Path
 import pytest
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
-from homeassistant.components.climate.const import ATTR_HVAC_MODE, HVAC_MODES
+from homeassistant.components.climate.const import HVAC_MODES
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.broadlink_ir.climate import _select, _select_temperature
+from custom_components.broadlink_ir.controller import _decode_like_broadlink
 
 from .conftest import payloads
 
@@ -48,6 +49,21 @@ FILES_WITH_UNRECORDED_BRANCHES = {
 }
 FILES_WITHOUT_AN_OFF_CODE = {
     "1801",  # 'off' is an empty placeholder upstream
+}
+
+# Codes inherited from upstream that no amount of re-padding can decode: a
+# character was lost or added when they were captured, and no single-character
+# repair yields an internally consistent Broadlink packet. Recorded so a new
+# corrupt code fails the suite. The integration raises a clear error naming the
+# device file when one of these is selected.
+CORRUPT_CODES = {
+    ("climate", "1164", "heat/high/28"),
+    ("climate", "1282", "heat/quiet/18"),
+    ("climate", "1942", "cool/high/21"),
+    ("climate", "1942", "heat/auto/24"),
+    ("climate", "2160", "cool/low/28"),
+    ("climate", "2380", "heat/low/24.5"),
+    ("fan", "1000", "reverse/lowest"),
 }
 
 
@@ -203,3 +219,69 @@ async def test_a_real_device_file_drives_a_real_entity(
     assert len(payload) == 1
     assert payload[0].startswith("b64:")
     assert hass.states.get("climate.real_ac").state != HVACMode.OFF
+
+
+def walk_commands(node, path=()):
+    """Yield (path, value) for every leaf under a commands tree."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from walk_commands(value, (*path, str(key)))
+    elif isinstance(node, list) and node and all(isinstance(e, str) for e in node):
+        yield path, node
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from walk_commands(value, (*path, str(index)))
+    else:
+        yield path, node
+
+
+@pytest.mark.parametrize("path", ALL_FILES, ids=lambda p: f"{p.parent.name}/{p.stem}")
+def test_every_code_decodes_the_way_broadlink_will(path: Path) -> None:
+    """Every shipped code survives the decoder the remote actually uses.
+
+    Guards two ways at once: a newly added corrupt code fails here, and so does
+    a decoder that has become stricter than the Broadlink integration's (which
+    would reject the many codes stored without '=' padding).
+    """
+    data = load(path)
+    if data["commandsEncoding"] != "Base64":
+        return
+
+    platform, code = path.parent.name, path.stem
+    found_corrupt = set()
+
+    for tree_path, value in walk_commands(data["commands"]):
+        if any(part.startswith(("_", "$")) for part in tree_path):
+            continue  # documentation, not a command
+        for entry in value if isinstance(value, list) else [value]:
+            if not isinstance(entry, str) or not entry.strip():
+                continue  # empty placeholder, covered elsewhere
+            where = "/".join(tree_path)
+            try:
+                _decode_like_broadlink(entry)
+            except Exception:  # noqa: BLE001
+                found_corrupt.add((platform, code, where))
+
+    known = {entry for entry in CORRUPT_CODES if entry[:2] == (platform, code)}
+    assert found_corrupt == known, (
+        f"{path.name}: corrupt codes changed.\n"
+        f"  newly corrupt: {sorted(found_corrupt - known)}\n"
+        f"  no longer corrupt: {sorted(known - found_corrupt)}"
+    )
+
+
+def test_validator_baseline_matches_the_test_baseline() -> None:
+    """scripts/validate_codes.py and this file must agree on what is corrupt.
+
+    Two hand-maintained lists of the same facts drift apart; this keeps them
+    honest so a fixed code cannot stay excused in one place only.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "validate_codes", REPO_ROOT / "scripts" / "validate_codes.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.KNOWN_CORRUPT == CORRUPT_CODES

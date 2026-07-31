@@ -1,4 +1,4 @@
-"""Broadlink IR climate platform (Broadlink)."""
+"""Broadlink IR climate platform."""
 
 from __future__ import annotations
 
@@ -33,9 +33,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.util.unit_conversion import TemperatureConverter
 
-from . import Helper
-from .controller import get_controller, is_recorded
+from . import Helper, is_recorded
+from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +55,9 @@ CONF_POWER_SENSOR_RESTORE_STATE = "power_sensor_restore_state"
 # Above this value a device file's min/max temperatures cannot plausibly be
 # Celsius, so they are read as Fahrenheit.
 _FAHRENHEIT_THRESHOLD = 40
+
+# Keys used inside command trees for documentation rather than for a command.
+_ANNOTATION_PREFIXES = ("_", "$")
 
 SUPPORT_FLAGS = (
     ClimateEntityFeature.TURN_OFF
@@ -190,7 +194,7 @@ class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
                 self._current_swing_mode = swing_mode
 
             if (temperature := last_state.attributes.get("temperature")) is not None:
-                self._target_temperature = temperature
+                self._target_temperature = self._restore_temperature(temperature)
 
             if (
                 last_on_operation := last_state.attributes.get("last_on_operation")
@@ -219,6 +223,36 @@ class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
             async_track_state_change_event(
                 self.hass, self._power_sensor, self._async_power_sensor_changed
             )
+
+    def _restore_temperature(self, temperature: float) -> float:
+        """Convert a restored target temperature back into the device's unit.
+
+        Home Assistant writes the 'temperature' attribute in the unit the user
+        displays, so a Fahrenheit device file on a Celsius system comes back as
+        Celsius and has to be converted before it can index the command tree.
+        """
+        try:
+            converted = TemperatureConverter.convert(
+                float(temperature), self.hass.config.units.temperature_unit, self._unit
+            )
+        except (TypeError, ValueError):
+            return self._target_temperature
+
+        if not self._min_temperature <= converted <= self._max_temperature:
+            _LOGGER.debug(
+                "Restored target temperature %s is outside the %s-%s range of "
+                "device code %s, keeping %s",
+                converted,
+                self._min_temperature,
+                self._max_temperature,
+                self._device_code,
+                self._target_temperature,
+            )
+            return self._target_temperature
+
+        if self._precision == PRECISION_WHOLE:
+            return round(converted)
+        return round(converted, 1)
 
     @property
     def unique_id(self) -> str | None:
@@ -516,9 +550,23 @@ def _select(node: Any, key: str, label: str, device_code: int) -> Any:
     if key in node:
         return node[key]
 
-    substitute, value = next(iter(node.items()))
+    # Device files carry '_comment'/'$comment'/'_note' documentation keys inside
+    # the command tree. Substituting one would transmit its prose as a code.
+    # Note that '' is a real, selectable fan mode in some files, so only the
+    # annotation prefixes are excluded.
+    candidates = {
+        name: value
+        for name, value in node.items()
+        if not name.startswith(_ANNOTATION_PREFIXES)
+    }
+    if not candidates:
+        raise HomeAssistantError(
+            f"Device code {device_code} has no {label} to select {key!r} from"
+        )
 
-    if len(node) == 1:
+    substitute, value = next(iter(candidates.items()))
+
+    if len(candidates) == 1:
         _LOGGER.debug(
             "Device code %s has no %s %r, using the only one it defines (%r)",
             device_code,

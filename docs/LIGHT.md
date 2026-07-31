@@ -64,7 +64,9 @@ Contributing your own code files is welcome. Incomplete files are not accepted: 
 
 | Code                             | Supported Models | Controller |
 |----------------------------------|------------------|------------|
-| [1040](../codes/light/1040.json) | FRC-199T         | Broadlink  |
+| [1040](../codes/light/1040.json) | FRC-199T ⚠️       | Broadlink  |
+
+⚠️ Every command in `1040.json` is an empty placeholder — the codes were never captured upstream, so this device code cannot control anything and the integration refuses to set it up. It is kept only so the code number stays reserved.
 
 #### Takizumi
 

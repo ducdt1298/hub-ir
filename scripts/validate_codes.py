@@ -14,8 +14,10 @@ Usage: python scripts/validate_codes.py [codes_dir]
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
+import struct
 import sys
 
 BROADLINK = "Broadlink"
@@ -42,6 +44,22 @@ PLATFORM_KEYS = {
 
 # Mirrors climate.py: above this a min/max temperature cannot be Celsius.
 FAHRENHEIT_THRESHOLD = 40
+
+# Codes inherited from upstream that cannot be decoded even after re-padding: a
+# character was lost or added when they were captured, and no single-character
+# repair yields an internally consistent Broadlink packet. They are reported as
+# known issues rather than errors so this script stays usable as a gate; a
+# newly corrupt code is a real error. Kept in step with
+# tests/test_real_device_files.py::CORRUPT_CODES.
+KNOWN_CORRUPT = {
+    ("climate", "1164", "heat/high/28"),
+    ("climate", "1282", "heat/quiet/18"),
+    ("climate", "1942", "cool/high/21"),
+    ("climate", "1942", "heat/auto/24"),
+    ("climate", "2160", "cool/low/28"),
+    ("climate", "2380", "heat/low/24.5"),
+    ("fan", "1000", "reverse/lowest"),
+}
 
 
 class Report:
@@ -97,6 +115,7 @@ def check_file(path: Path, platform: str) -> Report:
         report.error("commands must be a non-empty object")
     else:
         count_placeholders(data["commands"], report)
+        check_codes_decode(data, report, platform, path.stem)
 
     if platform == "climate":
         check_climate(data, report)
@@ -108,7 +127,11 @@ def check_file(path: Path, platform: str) -> Report:
 
 def count_placeholders(commands, report: Report) -> None:
     """Warn about entries left as empty placeholders instead of real codes."""
-    placeholders = [path for path, value in walk(commands) if not is_recorded(value)]
+    placeholders = [
+        path
+        for path, value in walk(commands)
+        if not is_documentation(path) and not is_recorded(value)
+    ]
     if not placeholders:
         return
 
@@ -118,6 +141,93 @@ def count_placeholders(commands, report: Report) -> None:
         f"{len(placeholders)} command(s) have no code recorded: {shown}{more}. "
         "The integration skips these and refuses to transmit them"
     )
+
+
+def data_packet(value: str) -> bytes:
+    """Decode a code exactly as homeassistant.components.broadlink does.
+
+    The Broadlink integration re-pads base64 itself, so a code missing its '='
+    padding is fine; anything this still cannot decode would raise when sent.
+    """
+    extra = len(value) % 4
+    if extra > 0:
+        value = value + ("=" * (4 - extra))
+    return base64.b64decode(value)
+
+
+def check_codes_decode(data: dict, report: Report, platform: str, code: str) -> None:
+    """Check that every recorded code is something the remote can transmit."""
+    encoding = data.get("commandsEncoding")
+    commands = data.get("commands")
+    if encoding != "Base64" or not isinstance(commands, dict):
+        # Hex and Pronto are converted by the integration, which raises a clear
+        # error of its own on bad input.
+        return
+
+    undecodable, known_bad, malformed = [], [], []
+
+    for path, value in walk(commands):
+        if is_documentation(path) or not is_recorded(value):
+            continue
+        for entry in value if isinstance(value, list) else [value]:
+            where = "/".join(path)
+            try:
+                raw = data_packet(entry)
+            except Exception as err:  # noqa: BLE001
+                if (platform, code, where) in KNOWN_CORRUPT:
+                    known_bad.append(where)
+                else:
+                    undecodable.append(f"{where} ({err})")
+                continue
+            if problem := describe_packet_problem(raw):
+                malformed.append(f"{where} ({problem})")
+
+    if undecodable:
+        shown = ", ".join(undecodable[:5])
+        more = f" (+{len(undecodable) - 5} more)" if len(undecodable) > 5 else ""
+        report.error(f"{len(undecodable)} code(s) are not valid base64: {shown}{more}")
+
+    if known_bad:
+        report.warn(
+            f"{len(known_bad)} known-corrupt code(s) inherited from upstream: "
+            f"{', '.join(known_bad)}. The integration refuses to transmit these "
+            "and says why; re-record them or use another device code"
+        )
+
+    if malformed:
+        shown = ", ".join(malformed[:5])
+        more = f" (+{len(malformed) - 5} more)" if len(malformed) > 5 else ""
+        report.warn(
+            f"{len(malformed)} code(s) decode but do not look like a Broadlink "
+            f"packet: {shown}{more}. They were probably captured badly and may "
+            "not work on the device"
+        )
+
+
+def describe_packet_problem(raw: bytes) -> str | None:
+    """Return why a decoded packet looks wrong, or None when it looks fine."""
+    if not raw:
+        return "decodes to zero bytes"
+
+    # 0x26 is IR; 0xb0/0xb1/0xb2/0xd7 are the RF variants.
+    if raw[0] not in (0x26, 0xB0, 0xB1, 0xB2, 0xD7):
+        return f"first byte 0x{raw[0]:02x} is not a known packet type"
+
+    if raw[0] == 0x26 and len(raw) >= 4:
+        declared = struct.unpack("<H", raw[2:4])[0]
+        if declared > len(raw) - 4:
+            return f"header declares {declared} payload bytes but only {len(raw) - 4} follow"
+
+    return None
+
+
+def is_documentation(path: tuple[str, ...]) -> bool:
+    """Return whether a tree path points at a '_comment'-style annotation.
+
+    Mirrors climate.py's _ANNOTATION_PREFIXES. Note that '' is a real fan mode
+    in some device files, so only these prefixes count as annotations.
+    """
+    return any(part.startswith(("_", "$")) for part in path)
 
 
 def walk(node, path=()):

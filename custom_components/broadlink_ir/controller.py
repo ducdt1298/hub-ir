@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from base64 import b64encode
+from base64 import b64decode, b64encode
 import binascii
 import logging
-from typing import Any
 
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from . import Helper
+from . import Helper, is_recorded
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,17 +23,18 @@ ENC_PRONTO = "Pronto"
 BROADLINK_COMMANDS_ENCODING = (ENC_BASE64, ENC_HEX, ENC_PRONTO)
 
 
-def is_recorded(command: Any) -> bool:
-    """Return whether a device file entry holds an actual code.
+def _decode_like_broadlink(value: str) -> bytes:
+    """Decode a base64 code exactly as the Broadlink integration does.
 
-    Parts of the device database carry empty placeholders where a code was
-    never captured. Those must not be advertised or transmitted.
+    Mirrors homeassistant.components.broadlink.helpers.data_packet, which
+    re-pads the string first. Many codes in the database are stored without
+    their '=' padding and are perfectly valid, so anything stricter than this
+    would reject codes that work.
     """
-    if isinstance(command, str):
-        return bool(command.strip())
-    if isinstance(command, list):
-        return bool(command) and all(is_recorded(entry) for entry in command)
-    return False
+    extra = len(value) % 4
+    if extra > 0:
+        value = value + ("=" * (4 - extra))
+    return b64decode(value)
 
 
 def get_controller(
@@ -47,8 +47,8 @@ def get_controller(
     """Return a controller for the device file's supportedController."""
     if controller != BROADLINK_CONTROLLER:
         raise HomeAssistantError(
-            f"This fork of Broadlink IR only supports the {BROADLINK_CONTROLLER} "
-            f"controller, but the device file requires '{controller}'. Pick a "
+            f"This integration only supports the {BROADLINK_CONTROLLER} controller, "
+            f"but this device file requires '{controller}'. Pick a "
             "device code whose supportedController is Broadlink"
         )
 
@@ -104,6 +104,17 @@ class BroadlinkController:
     def _encode(self, command: str) -> str:
         """Return the command as the base64 payload Broadlink expects."""
         if self._encoding == ENC_BASE64:
+            # A handful of codes in the database are corrupt beyond repair.
+            # Decoding them the way the Broadlink integration will lets us say
+            # so, instead of surfacing its generic binascii error.
+            try:
+                _decode_like_broadlink(command)
+            except (binascii.Error, ValueError) as err:
+                raise HomeAssistantError(
+                    f"The recorded code is not valid base64 ({err}). This entry "
+                    "in the device file is corrupt; re-record it or pick another "
+                    "device code"
+                ) from err
             return command
 
         if self._encoding == ENC_HEX:

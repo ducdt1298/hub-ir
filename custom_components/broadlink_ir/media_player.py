@@ -1,4 +1,4 @@
-"""Broadlink IR media player platform (Broadlink)."""
+"""Broadlink IR media player platform."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from . import Helper
-from .controller import get_controller, is_recorded
+from . import Helper, is_recorded
+from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
 

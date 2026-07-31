@@ -436,3 +436,69 @@ async def test_unusable_operation_modes_are_dropped(
 
     hvac_modes = hass.states.get("climate.vendor").attributes["hvac_modes"]
     assert hvac_modes == [HVACMode.OFF, HVACMode.COOL]
+
+
+async def test_comment_keys_are_never_sent_as_commands(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform
+) -> None:
+    """Documentation keys in the command tree must not be substituted.
+
+    Real device files carry '_comment', '$comment' and '_note' keys inside the
+    command tree, sometimes as the first key of a level. Substituting one would
+    transmit its prose to the remote.
+    """
+    data = {
+        **CLIMATE_DEVICE_DATA,
+        "operationModes": ["cool", "dry"],
+        "fanModes": ["low", "high"],
+        "commands": {
+            "off": "b2Zm",
+            "cool": {
+                "_comment": "captured from the AR-RCE1E remote",
+                "low": {"_note": "16 only", "16": "Y29vbDE2"},
+                "high": {"16": "Y2gxNg=="},
+            },
+            # 'dry' has no 'high' fan mode, and its first key is an annotation.
+            "dry": {
+                "$comment": "dry ignores the fan speed",
+                "low": {"16": "ZHJ5"},
+            },
+        },
+    }
+    write_device_file("climate", 9030, data)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {**CONFIG, "name": "C AC", "unique_id": "c_ac", "device_code": 9030},
+    )
+
+    # dry + high: 'high' is absent, so a fan mode must be substituted. The
+    # '$comment' string must not be the one chosen.
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {ATTR_ENTITY_ID: "climate.c_ac", ATTR_HVAC_MODE: HVACMode.DRY},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_FAN_MODE,
+        {ATTR_ENTITY_ID: "climate.c_ac", ATTR_FAN_MODE: "high"},
+        blocking=True,
+    )
+
+    sent = payloads(sent_commands)
+    assert sent == [["b64:ZHJ5"], ["b64:ZHJ5"]]
+    for call in sent:
+        for code in call:
+            assert "comment" not in code
+            assert "ignores" not in code
+
+    # And an annotation next to real temperatures is skipped too.
+    sent_commands.clear()
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {ATTR_ENTITY_ID: "climate.c_ac", ATTR_HVAC_MODE: HVACMode.COOL},
+        blocking=True,
+    )
+    assert payloads(sent_commands) == [["b64:Y2gxNg=="]]

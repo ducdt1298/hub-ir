@@ -111,11 +111,12 @@ async def test_loader_reads_a_local_device_file(
     hass: HomeAssistant, write_device_file
 ) -> None:
     """A device file already on disk is loaded without any download."""
-    write_device_file("climate", 4242, {"manufacturer": "Local"})
+    device_data = {"manufacturer": "Local", "commands": {"off": "b2Zm"}}
+    write_device_file("climate", 4242, device_data)
 
     data = await Helper.load_device_data(hass, "climate", 4242)
 
-    assert data == {"manufacturer": "Local"}
+    assert data == device_data
 
 
 async def test_loader_downloads_a_missing_device_file(
@@ -125,12 +126,12 @@ async def test_loader_downloads_a_missing_device_file(
     aioclient_mock.get(
         "https://raw.githubusercontent.com/ducdt1298/broadlink-ir-hass/main/"
         "codes/climate/4243.json",
-        text=json.dumps({"manufacturer": "Downloaded"}),
+        text=json.dumps({"manufacturer": "Downloaded", "commands": {"off": "b2Zm"}}),
     )
 
     data = await Helper.load_device_data(hass, "climate", 4243)
 
-    assert data == {"manufacturer": "Downloaded"}
+    assert data["manufacturer"] == "Downloaded"
     assert (codes_dir / "codes" / "climate" / "4243.json").is_file()
 
 
@@ -160,3 +161,133 @@ async def test_loader_reports_invalid_json(
 
     with pytest.raises(HomeAssistantError, match="not valid JSON"):
         await Helper.load_device_data(hass, "climate", 4245)
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "JgBQAA",       # 6 chars, needs '=='
+        "JgBQAAA",      # 7 chars, needs '='
+        "JgBQAAAA",     # already a multiple of 4
+    ],
+)
+async def test_unpadded_base64_codes_are_accepted(
+    hass: HomeAssistant, sent_commands, code
+) -> None:
+    """Most codes in the database are stored without '=' padding.
+
+    The Broadlink integration re-pads before decoding, so rejecting these would
+    break the majority of the device database.
+    """
+    controller = get_controller(hass, "Broadlink", "Base64", "remote.rm4", 0.5)
+
+    await controller.send(code)
+
+    assert payloads(sent_commands) == [[f"b64:{code}"]]
+
+
+async def test_corrupt_base64_code_is_diagnosed(
+    hass: HomeAssistant, sent_commands
+) -> None:
+    """A code that cannot be decoded even after re-padding says so."""
+    controller = get_controller(hass, "Broadlink", "Base64", "remote.rm4", 0.5)
+
+    # 5 characters: 1 more than a multiple of 4, which no padding can fix.
+    with pytest.raises(HomeAssistantError, match="not valid base64"):
+        await controller.send("JgBQA")
+
+    assert sent_commands == []
+
+
+async def test_loader_refuses_a_device_file_with_no_codes(
+    hass: HomeAssistant, write_device_file
+) -> None:
+    """A template file whose codes were never captured is refused.
+
+    light/1040 in the database is exactly this: every command is an empty
+    placeholder, so it would produce a light entity that silently does nothing.
+    """
+    write_device_file(
+        "light",
+        4246,
+        {
+            "manufacturer": "Toshiba",
+            "supportedController": "Broadlink",
+            "commandsEncoding": "Base64",
+            "commands": {"on": "", "off": ["", ""], "brighten": "", "dim": ""},
+        },
+    )
+
+    with pytest.raises(HomeAssistantError, match="no codes recorded at all"):
+        await Helper.load_device_data(hass, "light", 4246)
+
+
+async def test_loader_keeps_a_file_that_has_at_least_one_code(
+    hass: HomeAssistant, write_device_file
+) -> None:
+    """A file with gaps but at least one real code is still usable."""
+    write_device_file(
+        "light",
+        4247,
+        {
+            "manufacturer": "Partial",
+            "supportedController": "Broadlink",
+            "commandsEncoding": "Base64",
+            "commands": {"on": "b24=", "off": "", "_comment": "off not captured"},
+        },
+    )
+
+    data = await Helper.load_device_data(hass, "light", 4247)
+
+    assert data["commands"]["on"] == "b24="
+
+
+async def test_annotations_alone_do_not_count_as_codes(
+    hass: HomeAssistant, write_device_file
+) -> None:
+    """A file holding only '_comment' prose has no codes."""
+    write_device_file(
+        "light",
+        4248,
+        {
+            "manufacturer": "Empty",
+            "supportedController": "Broadlink",
+            "commandsEncoding": "Base64",
+            "commands": {"_comment": "todo: capture these", "on": "", "off": ""},
+        },
+    )
+
+    with pytest.raises(HomeAssistantError, match="no codes recorded at all"):
+        await Helper.load_device_data(hass, "light", 4248)
+
+
+def test_pronto_conversion_is_pinned_byte_for_byte() -> None:
+    """The Pronto to Broadlink conversion must not drift.
+
+    The pulse-to-tick step truncates rather than rounds. That looks like a
+    redundant int() cast, but changing it alters every emitted timing, and a
+    remote that receives slightly wrong timings simply does not respond. Pinning
+    the exact bytes makes such a "cleanup" fail here instead of in the living
+    room.
+    """
+    # A NEC-style Pronto code: 4-pair preamble then four burst pairs.
+    pronto = "0000 006D 0004 0000 0155 00AA 0016 0016 0016 0040 0016 05F7"
+
+    pulses = Helper.pronto2lirc(bytearray.fromhex(pronto.replace(" ", "")))
+    packet = Helper.lirc2broadlink(pulses)
+
+    assert pulses == [8967, 4470, 579, 579, 579, 1683, 579, 40154]
+    assert packet.hex() == "26000c000001269213131337130005260d0500000000000000000000"
+    assert packet[0] == 0x26  # IR packet
+    assert len(packet) % 16 == 12  # padded so len + 4 is a multiple of 16
+
+
+async def test_pronto_send_produces_the_pinned_packet(
+    hass: HomeAssistant, sent_commands
+) -> None:
+    """The controller ships exactly that packet, base64 encoded."""
+    controller = get_controller(hass, "Broadlink", "Pronto", "remote.rm4", 0.5)
+
+    await controller.send("0000 006D 0004 0000 0155 00AA 0016 0016 0016 0040 0016 05F7")
+
+    assert payloads(sent_commands) == [["b64:JgAMAAABJpITExM3EwAFJg0FAAAAAAAAAAAAAA=="]]

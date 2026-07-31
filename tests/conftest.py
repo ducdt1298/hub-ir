@@ -8,6 +8,23 @@ from typing import Any
 
 import pytest
 
+# pytest-homeassistant-custom-component ships its own `custom_components`
+# package (as testing_config/custom_components) and it is a regular package, so
+# depending on import order it can shadow this repository's. Add this repo's
+# directory to whichever package won, so `custom_components.broadlink_ir`
+# resolves the same way whether the whole suite or a single file runs.
+_REPO_CUSTOM_COMPONENTS = str(Path(__file__).resolve().parent.parent / "custom_components")
+
+
+def _make_component_importable() -> None:
+    import custom_components
+
+    if _REPO_CUSTOM_COMPONENTS not in custom_components.__path__:
+        custom_components.__path__.append(_REPO_CUSTOM_COMPONENTS)
+
+
+_make_component_importable()
+
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.entity_component import DATA_INSTANCES
 from homeassistant.setup import async_setup_component

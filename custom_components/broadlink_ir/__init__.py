@@ -7,6 +7,7 @@ Broadlink universal remote and a JSON database of device codes.
 from __future__ import annotations
 
 import binascii
+import contextlib
 import json
 import logging
 import os
@@ -41,15 +42,18 @@ CONF_CHECK_UPDATES = "check_updates"
 CONF_UPDATE_BRANCH = "update_branch"
 _OBSOLETE_OPTIONS = (CONF_CHECK_UPDATES, CONF_UPDATE_BRANCH)
 
-CONFIG_SCHEMA = vol.Schema(
+_OPTIONS_SCHEMA = vol.Schema(
     {
-        DOMAIN: vol.Schema(
-            {
-                vol.Optional(CONF_CHECK_UPDATES): cv.boolean,
-                vol.Optional(CONF_UPDATE_BRANCH): cv.string,
-            }
-        )
-    },
+        vol.Optional(CONF_CHECK_UPDATES): cv.boolean,
+        vol.Optional(CONF_UPDATE_BRANCH): cv.string,
+    }
+)
+
+CONFIG_SCHEMA = vol.Schema(
+    # A bare `broadlink_ir:` line is how the docs tell people to enable this, and
+    # YAML gives that key the value None. Accept it: validating None against a
+    # dict schema fails with "expected a dictionary".
+    {DOMAIN: vol.Any(_OPTIONS_SCHEMA, None)},
     extra=vol.ALLOW_EXTRA,
 )
 
@@ -67,6 +71,32 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         )
 
     return True
+
+
+def is_recorded(command: Any) -> bool:
+    """Return whether a device file entry holds an actual code.
+
+    Parts of the device database carry empty placeholders where a code was
+    never captured. Those must not be advertised or transmitted.
+    """
+    if isinstance(command, str):
+        return bool(command.strip())
+    if isinstance(command, list):
+        return bool(command) and all(is_recorded(entry) for entry in command)
+    return False
+
+
+def _has_any_code(commands: Any) -> bool:
+    """Return whether a command tree holds at least one usable code."""
+    if isinstance(commands, dict):
+        return any(
+            _has_any_code(value)
+            for key, value in commands.items()
+            if not str(key).startswith(("_", "$"))
+        )
+    if isinstance(commands, list):
+        return any(_has_any_code(entry) for entry in commands)
+    return is_recorded(commands)
 
 
 class Helper:
@@ -120,6 +150,16 @@ class Helper:
                 "a JSON object"
             )
 
+        # Some files in the database are templates whose codes were never
+        # captured. Setting up an entity from one gives a device that silently
+        # does nothing, so refuse it here instead.
+        if not _has_any_code(device_data.get("commands")):
+            raise HomeAssistantError(
+                f"The device file for {platform} code {device_code} has no codes "
+                "recorded at all, so it cannot control anything. Pick another "
+                "device code or record your own"
+            )
+
         return device_data
 
     @staticmethod
@@ -156,7 +196,7 @@ class Helper:
             raise ValueError("Number of pulse widths does not match the preamble")
 
         frequency = 1 / (codes[1] * 0.241246)
-        return [int(round(code / frequency)) for code in codes[4:]]
+        return [round(code / frequency) for code in codes[4:]]
 
     @staticmethod
     def lirc2broadlink(pulses: list[int]) -> bytearray:
@@ -164,6 +204,8 @@ class Helper:
         array = bytearray()
 
         for pulse in pulses:
+            # Truncation, not rounding: this is the conversion the Broadlink
+            # protocol implementations use, and it changes the emitted timings.
             pulse = int(pulse * 269 / 8192)
 
             if pulse < 256:
@@ -201,8 +243,6 @@ def _write_atomic(path: str, payload: bytes) -> None:
             file.write(payload)
         os.replace(tmp_path, path)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(tmp_path)
-        except OSError:
-            pass
         raise

@@ -115,6 +115,29 @@ place, setup still succeeds and logs a warning telling you to remove them.
 - Moved every filesystem access off the event loop. Home Assistant now reports
   blocking I/O inside the loop as a warning.
 
+**Fixed — found by auditing this fork's own code**
+
+- A bare `broadlink_ir:` line — what the docs tell you to add — failed config
+  validation with *"expected a dictionary ... got None"*. Upstream has the same
+  bug.
+- Restoring the target temperature after a restart read it back in the *user's*
+  unit, so a Fahrenheit device file on a Celsius system came back with a
+  corrupted setpoint. A restored value outside the device's range is now
+  discarded rather than advertised.
+- Device files carry `_comment`/`$comment`/`_note` keys inside the command tree,
+  sometimes as the first key of a level. The sparse-file fallback could have
+  picked one and transmitted its prose as a code.
+- A device file whose codes were never captured (`light/1040` is entirely empty
+  placeholders, yet the docs list it as a Toshiba FRC-199T) produced an entity
+  that silently did nothing. Setup now fails with an explanation.
+- 7 codes in the database cannot be decoded even after re-padding. They now
+  raise a message naming the device file instead of a bare `binascii` error.
+- `codes/climate/1704.json` had the code for 25 °C with the code for 26 °C
+  appended to it, making it undecodable. The duplicate was removed.
+- The Pronto conversion's pulse-to-tick step truncates rather than rounds.
+  That reads like a redundant `int()` cast, so it is now pinned byte-for-byte by
+  a test — changing it would silently alter every emitted timing.
+
 **Fixed — long-standing bugs**
 
 - Climate: a `power_sensor` turning on set `hvac_mode` to the literal `"on"`,
@@ -174,9 +197,16 @@ Validate the device database (no Home Assistant needed):
 python scripts/validate_codes.py
 ```
 
-The suite has 815 tests. Beyond per-platform behaviour, it walks every shipped
-device file and asserts that every mode/fan/swing/temperature a user can select
-resolves to a real code.
+The suite has 1258 tests. Beyond per-platform behaviour it covers:
+
+- state restored after a restart, including values the device file can no longer
+  express;
+- every shipped device file, asserting that each mode/fan/swing/temperature a
+  user can select resolves to a real code, and that each code decodes exactly
+  the way the Broadlink integration will decode it;
+- the shapes that only occur in real data — swing modes, Pronto encoding, a fan
+  with `forward`/`reverse` instead of `default`, a light with no colour
+  temperature, a media player with no sources.
 
 ### Verified versions
 
@@ -188,11 +218,21 @@ longer resolve.
 
 ### Known device-file gaps
 
-`scripts/validate_codes.py` reports 55 files with warnings and 0 with errors.
-Eight files have whole branches where no code was ever recorded upstream; the
-integration refuses to transmit those rather than sending an invalid payload.
-They are listed in `tests/test_real_device_files.py` so a *new* gap fails the
-suite.
+`scripts/validate_codes.py` reports **0 errors** and 67 files with warnings, all
+of them inherited from upstream and all handled by the integration:
+
+| Files | What |
+| ----- | ---- |
+| 34 | a fan or swing mode is missing under some operation mode, so a recorded one is substituted |
+| 16 | some commands are empty placeholders; these are skipped and never transmitted |
+| 11 | an operation mode Home Assistant has no equivalent for, so the entity ignores it |
+| 8 | codes that decode but do not look like a valid Broadlink packet, so they may not work |
+| 6 | codes that cannot be decoded at all (7 codes total) |
+
+Nothing here can be repaired without the original hardware, so the exact sets
+are pinned in `tests/test_real_device_files.py` — a *newly* broken code fails the
+suite rather than blending into the noise. Run the validator for the per-file
+detail.
 
 ## Credits
 

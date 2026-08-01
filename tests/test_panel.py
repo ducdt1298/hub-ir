@@ -22,6 +22,9 @@ from custom_components.broadlink_ir.device_file import (
     CUSTOM_CODE_START,
     build_device_file,
     capture_plan,
+    codes_from_device_file,
+    is_recorded,
+    spec_from_device_file,
     temperature_steps,
     validate,
 )
@@ -187,10 +190,12 @@ async def test_a_stale_code_is_not_mistaken_for_a_fresh_one(
 async def test_consecutive_captures_each_return_their_own_code(
     hass: HomeAssistant, broadlink_remote
 ) -> None:
-    """Reusing one Store would cache the first load and hide every code after it.
+    """Capturing in a run must not keep handing back the first code.
 
-    This is the failure that would have made the panel report a timeout on
-    every capture but the first.
+    The test harness makes this sharper than production does: its storage mock
+    pins the loaded data onto the Store instance, so a reused reader would go
+    stale after one load. Real Store.async_load reads through to the file. Either
+    way, a run of 180 captures has to return 180 distinct codes.
     """
     codes = []
     for index in range(3):
@@ -235,6 +240,25 @@ def test_temperature_steps_do_not_drift() -> None:
     assert temperature_steps(16, 18, 0.5) == ["16", "16.5", "17", "17.5", "18"]
     assert temperature_steps(16, 30, 1)[-1] == "30"
     assert len(temperature_steps(61, 86, 1)) == 26
+
+
+@pytest.mark.parametrize(
+    ("minimum", "maximum", "precision"),
+    [(16, 30, 4), (16, 30, 0.75), (16, 17, 0.3), (10, 32, 1), (16, 30, 0.5)],
+)
+def test_temperature_steps_never_exceed_the_maximum(
+    minimum, maximum, precision
+) -> None:
+    """A step that does not divide the range evenly must stop short, not over.
+
+    climate.py refuses a target outside min/max, so a key above the maximum
+    would be a code the user could never reach — dead weight in the file and a
+    capture nobody should be asked to make.
+    """
+    steps = [float(step) for step in temperature_steps(minimum, maximum, precision)]
+
+    assert steps[0] == minimum
+    assert all(minimum <= step <= maximum for step in steps)
 
 
 def test_a_plain_air_conditioner_needs_every_combination() -> None:
@@ -413,6 +437,161 @@ def test_a_skipped_capture_becomes_a_placeholder_not_a_missing_key() -> None:
     report = validate("climate", data, "90002")
     assert report.errors == []
     assert any("no code recorded" in warning for warning in report.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Starting from a file that already exists
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _shipped(platform: str, device_code: int) -> dict[str, Any]:
+    """Return a device file from the shipped database."""
+    path = REPO_ROOT / "codes" / platform / f"{device_code}.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_a_shipped_file_round_trips_through_the_template_loader() -> None:
+    """Loading climate/1000 must recover every code it holds, not just its shape."""
+    data = _shipped("climate", 1000)
+
+    spec = spec_from_device_file("climate", data)
+    codes = codes_from_device_file("climate", data, spec)
+    plan = capture_plan("climate", spec)
+
+    assert spec["operationModes"] == ["heat", "cool", "fan_only"]
+    assert spec["fanModes"] == ["low", "mid", "high", "auto"]
+    assert len(codes) == len(plan), "the template left gaps in a complete file"
+
+    rebuilt = build_device_file("climate", spec, codes)
+    assert validate("climate", rebuilt, "90000").errors == []
+
+
+@pytest.mark.parametrize(
+    ("platform", "device_code"),
+    [("climate", 1000), ("climate", 1044), ("fan", 1000), ("media_player", 1000)],
+)
+def test_no_shipped_code_is_lost_when_a_file_is_used_as_a_template(
+    platform, device_code
+) -> None:
+    """A cell reported as a gap must really be absent from the file.
+
+    Reporting a false gap would make someone re-record a code they already had,
+    which is exactly the tedium this panel exists to remove.
+    """
+    data = _shipped(platform, device_code)
+    spec = spec_from_device_file(platform, data)
+    codes = codes_from_device_file(platform, data, spec)
+    commands = data["commands"]
+
+    for cell in capture_plan(platform, spec):
+        if cell["key"] in codes:
+            continue
+        for target in cell["targets"]:
+            node = commands
+            for key in target:
+                node = node.get(key) if isinstance(node, dict) else None
+                if node is None:
+                    break
+            assert not is_recorded(node), f"{cell['key']} was there all along"
+
+
+def test_a_mode_recorded_without_temperatures_is_recognised() -> None:
+    """The reduction has to survive a round trip, or a re-learn gets longer."""
+    data = {
+        "manufacturer": "Test",
+        "supportedModels": ["T"],
+        "supportedController": "Broadlink",
+        "commandsEncoding": "Base64",
+        "minTemperature": 16,
+        "maxTemperature": 18,
+        "precision": 1,
+        "temperatureUnit": "C",
+        "operationModes": ["cool", "fan_only"],
+        "fanModes": ["low", "high"],
+        "commands": {
+            "off": GOOD_CODE,
+            "cool": {
+                "low": {"16": GOOD_CODE, "17": GOOD_CODE, "18": GOOD_CODE},
+                "high": {"16": GOOD_CODE, "17": GOOD_CODE, "18": GOOD_CODE},
+            },
+            # No temperature level, and identical under both fan speeds.
+            "fan_only": {"low": GOOD_CODE, "high": GOOD_CODE},
+        },
+    }
+
+    spec = spec_from_device_file("climate", data)
+
+    assert spec["modeOptions"]["cool"] == {"usesFan": False, "usesTemperature": True}
+    assert spec["modeOptions"]["fan_only"] == {
+        "usesFan": False,
+        "usesTemperature": False,
+    }
+    # cool records the same subtree under both fan speeds, so one capture covers
+    # it; fan_only collapses to a single code.
+    assert len(capture_plan("climate", spec)) == 1 + 3 + 1
+
+
+def test_a_mode_whose_fan_speeds_differ_is_not_collapsed() -> None:
+    """Collapsing a mode that really varies would throw codes away."""
+    data = {
+        "manufacturer": "Test",
+        "supportedModels": ["T"],
+        "supportedController": "Broadlink",
+        "commandsEncoding": "Base64",
+        "minTemperature": 16,
+        "maxTemperature": 16,
+        "precision": 1,
+        "temperatureUnit": "C",
+        "operationModes": ["cool"],
+        "fanModes": ["low", "high"],
+        "commands": {
+            "off": GOOD_CODE,
+            "cool": {"low": {"16": GOOD_CODE}, "high": {"16": "JgAEABEgMEANBQ=="}},
+        },
+    }
+
+    spec = spec_from_device_file("climate", data)
+
+    assert spec["modeOptions"]["cool"]["usesFan"] is True
+    assert len(capture_plan("climate", spec)) == 3
+
+
+async def test_get_hands_the_panel_a_spec_and_the_codes_it_already_has(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """Cover what makes 'start from an existing file' more than a slogan."""
+    path = panel / "codes" / "climate" / "1234.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_shipped("climate", 1000)), encoding="utf-8")
+
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {"type": "broadlink_ir/get", "platform": "climate", "device_code": 1234}
+    )
+    result = (await client.receive_json())["result"]
+
+    assert result["spec"]["fanModes"] == ["low", "mid", "high", "auto"]
+    assert len(result["codes"]) == 181
+    assert result["errors"] == []
+
+
+async def test_listing_separates_your_own_files_from_the_shipped_ones(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """The panel offers your recordings without burying them in 407 others."""
+    for device_code in (1000, CUSTOM_CODE_START):
+        path = panel / "codes" / "climate" / f"{device_code}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "broadlink_ir/list", "platform": "climate"})
+    result = (await client.receive_json())["result"]
+
+    assert result["codes"] == [1000, CUSTOM_CODE_START]
+    assert result["custom"] == [CUSTOM_CODE_START]
 
 
 # ---------------------------------------------------------------------------

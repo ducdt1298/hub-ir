@@ -29,6 +29,8 @@ from .device_file import (
     PLATFORMS,
     build_device_file,
     capture_plan,
+    codes_from_device_file,
+    spec_from_device_file,
     validate,
 )
 from .learn import async_learn_ir_code
@@ -76,6 +78,11 @@ def _next_free_code(platform: str) -> int:
     return candidate
 
 
+def _next_free_codes() -> dict[str, int]:
+    """Return the next free device code for every platform. Blocking."""
+    return {platform: _next_free_code(platform) for platform in PLATFORMS}
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "broadlink_ir/info"})
 @websocket_api.async_response
@@ -86,6 +93,10 @@ async def ws_info(
 ) -> None:
     """Report the remotes that can learn and the next free device code."""
     registry = er.async_get(hass)
+
+    # Scanning the codes directory is blocking, and Home Assistant reports
+    # blocking I/O in the event loop as a warning.
+    next_code = await hass.async_add_executor_job(_next_free_codes)
 
     remotes = []
     for state in hass.states.async_all("remote"):
@@ -107,9 +118,7 @@ async def ws_info(
             "platforms": list(PLATFORMS),
             "remotes": sorted(remotes, key=lambda remote: remote["name"]),
             "custom_code_start": CUSTOM_CODE_START,
-            "next_code": {
-                platform: _next_free_code(platform) for platform in PLATFORMS
-            },
+            "next_code": next_code,
         },
     )
 
@@ -186,11 +195,23 @@ async def ws_get(
         return
 
     report = validate(platform, data, str(device_code))
+
+    # The spec and the codes are what the panel needs to carry on from here:
+    # it can show what the file already provides and only capture the rest.
+    try:
+        spec = spec_from_device_file(platform, data)
+        codes = codes_from_device_file(platform, data, spec)
+    except (KeyError, ValueError) as err:
+        connection.send_error(msg["id"], "unreadable_device_file", str(err))
+        return
+
     connection.send_result(
         msg["id"],
         {
             "device_code": device_code,
             "data": data,
+            "spec": spec,
+            "codes": codes,
             "errors": report.errors,
             "warnings": report.warnings,
         },
@@ -205,7 +226,6 @@ async def ws_get(
         vol.Required("device_code"): vol.All(int, vol.Range(min=CUSTOM_CODE_START)),
         vol.Required("spec"): dict,
         vol.Required("codes"): dict,
-        vol.Optional("allow_incomplete", default=True): bool,
     }
 )
 @websocket_api.async_response

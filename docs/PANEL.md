@@ -9,17 +9,19 @@ The panel does all of it in one place.
 
 ## Turning it on
 
-Add this to `configuration.yaml` and restart:
+**Broadlink IR** appears in the sidebar for administrators, because the panel
+writes into your configuration directory.
+
+The panel comes up whenever the integration loads, which happens as soon as any
+`platform: broadlink_ir` is configured. On a fresh install there is nothing to
+load it yet, so add this to `configuration.yaml` and restart:
 
 ```yaml
 broadlink_ir:
 ```
 
-**Broadlink IR** then appears in the sidebar, for administrators only — it writes
-into your configuration directory.
-
-That line used to be optional. It is what registers the panel, so a fresh
-install with no platforms configured yet needs it.
+Once you have a platform configured that line is optional, but leaving it in
+does no harm.
 
 ## What it needs
 

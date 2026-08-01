@@ -109,7 +109,7 @@ const STYLES = `
   .bar > div { height: 100%; background: var(--primary-color); transition: width .2s; }
   .cells { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .5rem; }
   .cell {
-    width: .75rem; height: .75rem; border-radius: 2px;
+    width: .75rem; height: .75rem; border-radius: 2px; cursor: pointer;
     background: var(--divider-color, #ddd);
   }
   .cell.done { background: var(--success-color, #43a047); }
@@ -140,6 +140,7 @@ class BroadlinkIrPanel extends HTMLElement {
       remotes: [],
       nextCode: {},
       deviceCode: null,
+      templateCode: "",
       spec: structuredClone(DEFAULT_SPEC.climate),
       cells: [],
       codes: {},
@@ -213,15 +214,65 @@ class BroadlinkIrPanel extends HTMLElement {
         platform: this._state.platform,
         spec: this._specForServer(),
       });
+      const state = this._state;
+      state.cells = cells;
+      state.index = 0;
+      this._advanceToFirstGap();
+      this._set({ step: "capture", status: null });
+    } catch (err) {
+      this._set({ status: { kind: "error", text: describe(err) } });
+    }
+  }
+
+  /**
+   * Load an existing device file and carry on from what it already records.
+   *
+   * The server derives the spec and the codes, including which modes the file
+   * says ignore fan speed or temperature, so re-learning a device only costs
+   * the codes that are actually missing.
+   */
+  async _loadTemplate() {
+    const code = Number(this._state.templateCode);
+    if (!code) {
+      this._set({ status: { kind: "error", text: "Enter a device code first." } });
+      return;
+    }
+
+    try {
+      const result = await this._call({
+        type: "broadlink_ir/get",
+        platform: this._state.platform,
+        device_code: code,
+      });
+
+      const spec = { ...structuredClone(DEFAULT_SPEC[this._state.platform]), ...result.spec };
+      spec.models = (result.spec.supportedModels || []).join(", ");
+      delete spec.supportedModels;
+
+      const kept = Object.keys(result.codes).length;
       this._set({
-        cells,
-        step: "capture",
+        spec,
+        codes: result.codes,
+        skipped: {},
+        cells: [],
         index: 0,
-        status: null,
+        status: {
+          kind: "ok",
+          text:
+            `Loaded device code ${code}: ${kept} code(s) already recorded. ` +
+            `Saving will write to ${this._state.deviceCode}, leaving the original alone.`,
+        },
       });
     } catch (err) {
       this._set({ status: { kind: "error", text: describe(err) } });
     }
+  }
+
+  _advanceToFirstGap() {
+    const { cells } = this._state;
+    let index = 0;
+    while (index < cells.length && this._cellState(cells[index])) index += 1;
+    this._state.index = index;
   }
 
   _specForServer() {
@@ -284,8 +335,22 @@ class BroadlinkIrPanel extends HTMLElement {
     this._render();
   }
 
+  /**
+   * Return the cell the buttons act on: the one being captured if it already
+   * holds a code, otherwise the last one that does. Without the fallback there
+   * is nothing to test right after a capture, because the panel has moved on.
+   */
+  _testableCell() {
+    const { cells, codes, index } = this._state;
+    if (cells[index] && codes[cells[index].key]) return cells[index];
+    for (let i = Math.min(index, cells.length) - 1; i >= 0; i -= 1) {
+      if (codes[cells[i].key]) return cells[i];
+    }
+    return null;
+  }
+
   async _test() {
-    const cell = this._state.cells[this._state.index - 1] || this._state.cells[0];
+    const cell = this._testableCell();
     const code = cell && this._state.codes[cell.key];
     if (!code) {
       this._set({ status: { kind: "error", text: "Nothing captured to test yet." } });
@@ -396,6 +461,18 @@ class BroadlinkIrPanel extends HTMLElement {
             <label for="models">Models, comma separated</label>
             <input id="models" value="${esc(s.spec.models)}" placeholder="FTKC35" />
           </div>
+        </div>
+
+        <p class="muted" style="margin-top:1rem">
+          Starting from a device file that is nearly right is much less work than
+          starting from nothing. Any existing code can be loaded — the settings and
+          every code it already holds come with it, and only the gaps are left to
+          capture. Saving always writes to your own code, so the original is untouched.
+        </p>
+        <div class="row">
+          <input id="template_code" type="number" placeholder="e.g. 1000"
+                 value="${esc(s.templateCode)}" style="max-width:10rem" />
+          <button id="load_template">Load that device file</button>
         </div>
       </div>
 
@@ -555,10 +632,12 @@ class BroadlinkIrPanel extends HTMLElement {
               (cell, i) =>
                 `<div class="cell ${this._cellState(cell)}${
                   i === s.index ? " current" : ""
-                }" title="${esc(cell.label)}"></div>`
+                }" data-index="${i}" role="button" tabindex="0"
+                  title="${esc(cell.label)} — click to go back to it"></div>`
             )
             .join("")}
         </div>
+        <p class="muted">Click a square to return to that code and capture it again.</p>
 
         <div class="row" style="margin-top:1rem">
           <button class="primary" id="run" ${
@@ -643,9 +722,12 @@ class BroadlinkIrPanel extends HTMLElement {
         platform,
         spec: structuredClone(DEFAULT_SPEC[platform]),
         deviceCode: this._state.nextCode[platform],
+        templateCode: "",
         cells: [],
         codes: {},
         skipped: {},
+        index: 0,
+        status: null,
       });
     });
     on("remote", "change", (event) => this._set({ remote: event.target.value }));
@@ -684,6 +766,18 @@ class BroadlinkIrPanel extends HTMLElement {
     for (const node of root.querySelectorAll(".chip")) {
       node.addEventListener("click", () => this._toggleChip(node.dataset.key));
     }
+
+    for (const node of root.querySelectorAll(".cell[data-index]")) {
+      node.addEventListener("click", () => {
+        if (this._state.running) return;
+        this._set({ index: Number(node.dataset.index), status: null });
+      });
+    }
+
+    on("template_code", "input", (event) => {
+      this._state.templateCode = event.target.value;
+    });
+    on("load_template", "click", () => this._loadTemplate());
 
     on("plan", "click", () => this._buildPlan());
     on("run", "click", () => this._learnCurrent(true));

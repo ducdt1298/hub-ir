@@ -61,14 +61,14 @@ Copy `custom_components/broadlink_ir` into your configuration directory:
 |       |-- codes/          <- created on first use, see below
 ```
 
-Then restart Home Assistant and add this to `configuration.yaml`:
+Then restart Home Assistant. On a fresh install, also add this to
+`configuration.yaml` so the integration loads before you have configured any
+platform — that is what puts the
+[learning panel](#recording-a-device-of-your-own) in the sidebar:
 
 ```yaml
 broadlink_ir:
 ```
-
-The platforms work without that line, but it is what puts the
-[learning panel](#recording-a-device-of-your-own) in the sidebar.
 
 ### Where the device files come from
 
@@ -101,8 +101,12 @@ modes ignore the temperature or the fan speed, which is what turns the 180 codes
 a typical air conditioner needs into around 120. Files are saved under device
 codes from 90000 up, so they can never shadow a shipped one.
 
-Add `broadlink_ir:` to `configuration.yaml` to get the panel, then see
-[docs/PANEL.md](docs/PANEL.md).
+It can also start from a device file that is nearly right — any of the 407
+shipped ones — carrying over its settings and every code it already holds, so
+only the gaps are captured. Saving always writes to a code of your own, so the
+original is never touched.
+
+See [docs/PANEL.md](docs/PANEL.md).
 
 ## Configuration
 
@@ -324,7 +328,7 @@ scripts/lint.sh          # check
 scripts/lint.sh --fix    # apply what ruff can fix safely
 ```
 
-The suite has 1333 tests. Beyond per-platform behaviour it covers:
+The suite has 1347 tests. Beyond per-platform behaviour it covers:
 
 - state restored after a restart, including values the device file can no longer
   express;
@@ -340,7 +344,10 @@ The suite has 1333 tests. Beyond per-platform behaviour it covers:
 - the learning panel's server side: that a captured code really is recovered
   from Broadlink's storage, that a missed press is reported instead of passing
   silently, that consecutive captures do not return the first code over and over,
-  and that a file the panel writes both validates and loads as a working entity.
+  and that a file the panel writes both validates and loads as a working entity;
+- using a shipped device file as a starting point, checked against real files —
+  a code the panel reports as missing must really be absent, or someone would be
+  asked to record something they already had.
 
 ### Verified versions
 

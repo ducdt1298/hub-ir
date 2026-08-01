@@ -502,17 +502,24 @@ def temperature_steps(minimum: float, maximum: float, precision: float) -> list[
 
     Stepping with integers avoids the drift that repeated float addition would
     put into keys like '24.5'.
+
+    A step that does not divide the range evenly stops below the maximum rather
+    than overshooting it: climate.py refuses a target outside min/max, so a key
+    above the maximum would be a code nobody could ever ask for.
     """
     if precision <= 0:
         raise ValueError("precision must be greater than zero")
     if maximum < minimum:
         raise ValueError("maxTemperature must not be below minTemperature")
 
-    count = round((maximum - minimum) / precision)
     steps = []
-    for index in range(count + 1):
+    index = 0
+    while True:
         value = round(minimum + index * precision, 2)
+        if value > maximum:
+            break
         steps.append(f"{value:g}")
+        index += 1
     return steps
 
 
@@ -729,3 +736,124 @@ def _write_at(tree: dict[str, Any], path: list[str], value: Any) -> None:
             node[key] = existing
         node = existing
     node[path[-1]] = value
+
+
+def _read_at(tree: Any, path: list[str]) -> Any:
+    """Return the value at a path in a command tree, or None if it is absent."""
+    node = tree
+    for key in path:
+        if not isinstance(node, dict) or key not in node:
+            return None
+        node = node[key]
+    return node
+
+
+# ---------------------------------------------------------------------------
+# Reading an existing device file back into a spec
+# ---------------------------------------------------------------------------
+
+
+def spec_from_device_file(platform: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Recover the spec that would produce a device file like this one.
+
+    Used to start from a file that already exists — one of the shipped ones, or
+    an earlier attempt — so only the codes that are missing or wrong have to be
+    learned again.
+    """
+    commands = data.get("commands") or {}
+    spec: dict[str, Any] = {
+        "manufacturer": data.get("manufacturer") or "",
+        "supportedModels": list(data.get("supportedModels") or []),
+    }
+
+    if platform == "climate":
+        spec.update(
+            minTemperature=data.get("minTemperature", 16),
+            maxTemperature=data.get("maxTemperature", 30),
+            precision=data.get("precision", 1),
+            temperatureUnit=temperature_unit(data, data.get("maxTemperature", 30)),
+            operationModes=[
+                mode
+                for mode in data.get("operationModes") or []
+                if mode in HVAC_MODES and mode != "off"
+            ],
+            fanModes=list(data.get("fanModes") or []),
+            swingModes=list(data.get("swingModes") or []),
+            hasOnCommand=is_recorded(commands.get("on")),
+        )
+        spec["modeOptions"] = {
+            mode: _infer_mode_options(commands.get(mode), spec)
+            for mode in spec["operationModes"]
+        }
+    elif platform == "fan":
+        spec.update(
+            speed=list(data.get("speed") or []),
+            hasDirection="forward" in commands and "reverse" in commands,
+            hasOscillate="oscillate" in commands,
+        )
+    elif platform == "light":
+        spec.update(
+            brightness=list(data.get("brightness") or []),
+            colorTemperature=list(data.get("colorTemperature") or []),
+            hasNight="night" in commands,
+        )
+    elif platform == "media_player":
+        spec.update(
+            buttons=[name for name, _, _ in _MEDIA_PLAYER_BUTTONS if name in commands],
+            sources=list((commands.get("sources") or {}).keys()),
+        )
+
+    return spec
+
+
+def _infer_mode_options(node: Any, spec: dict[str, Any]) -> dict[str, bool]:
+    """Work out whether a mode's subtree varies with fan speed and temperature.
+
+    A file that records the same subtree under every fan mode is telling us the
+    unit ignores fan speed there, and one that stops at a bare code is telling
+    us it ignores temperature. Recovering that keeps a re-learn as short as the
+    original capture was.
+    """
+    fan_modes = spec.get("fanModes") or []
+    swing_modes = spec.get("swingModes") or []
+
+    if not isinstance(node, dict):
+        # A single code for the whole mode: nothing below it varies.
+        return {"usesFan": False, "usesTemperature": False}
+
+    present = [fan for fan in fan_modes if fan in node]
+    uses_fan = len(present) > 1 and any(
+        node[fan] != node[present[0]] for fan in present[1:]
+    )
+
+    below = node[present[0]] if present else next(iter(node.values()), None)
+    if swing_modes and isinstance(below, dict):
+        below = below.get(swing_modes[0], next(iter(below.values()), None))
+
+    uses_temperature = isinstance(below, dict) and any(is_number(key) for key in below)
+
+    return {"usesFan": uses_fan, "usesTemperature": uses_temperature}
+
+
+def codes_from_device_file(
+    platform: str, data: dict[str, Any], spec: dict[str, Any]
+) -> dict[str, Any]:
+    """Return the codes an existing file already provides, keyed by plan cell.
+
+    Anything the plan wants but the file does not record is simply absent, which
+    is what leaves it to be captured.
+    """
+    commands = data.get("commands") or {}
+    codes: dict[str, Any] = {}
+
+    for cell in capture_plan(platform, spec):
+        # Every target holds the same code by construction, but a file that
+        # recorded only one fan mode under a level put it under whichever key it
+        # felt like, so take the first that is actually there.
+        for target in cell["targets"]:
+            value = _read_at(commands, target)
+            if is_recorded(value):
+                codes[cell["key"]] = value
+                break
+
+    return codes

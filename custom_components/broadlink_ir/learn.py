@@ -81,9 +81,12 @@ def broadlink_unique_id(hass: HomeAssistant, remote_entity_id: str) -> str:
 async def _load_codes(hass: HomeAssistant, unique_id: str) -> dict[str, Any]:
     """Return the Broadlink integration's stored codes.
 
-    A fresh Store every call, deliberately: Store caches what it loaded, so a
-    reused instance would keep handing back the snapshot from before the first
-    code was learned and every capture after that would look like a timeout.
+    A fresh Store every call. Store.async_load reads through to the file unless
+    that same instance has a write pending, which ours never does, so keeping
+    one around would buy nothing and would couple us to whatever state it had
+    accumulated. Home Assistant's shared cache is not a risk either: Store
+    invalidates a key before saving it, so once Broadlink has written a code
+    every later read comes from disk.
     """
     store = Store[dict[str, Any]](
         hass, CODE_STORAGE_VERSION, f"broadlink_remote_{unique_id}_codes"

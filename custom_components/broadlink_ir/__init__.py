@@ -25,6 +25,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
+# Re-exported: the device-file rules live in a module free of Home Assistant so
+# that scripts/validate_codes.py can share them, but the platforms import them
+# from here.
+from .device_file import has_any_code, is_recorded  # noqa: F401
+
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "broadlink_ir"
@@ -77,6 +82,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             ", ".join(obsolete),
         )
 
+    # Imported here rather than at module scope: these pull in the http and
+    # frontend stacks, and importing them while the module is first loaded would
+    # drag that cost into every platform setup.
+    from .frontend import async_register_panel  # noqa: PLC0415
+    from .websocket import async_register  # noqa: PLC0415
+
+    async_register(hass)
+    await async_register_panel(hass)
+
     return True
 
 
@@ -93,19 +107,6 @@ def remote_entity_id(value: Any) -> str:
             f"(remote.something), got '{entity_id}'"
         )
     return entity_id
-
-
-def is_recorded(command: Any) -> bool:
-    """Return whether a device file entry holds an actual code.
-
-    Parts of the device database carry empty placeholders where a code was
-    never captured. Those must not be advertised or transmitted.
-    """
-    if isinstance(command, str):
-        return bool(command.strip())
-    if isinstance(command, list):
-        return bool(command) and all(is_recorded(entry) for entry in command)
-    return False
 
 
 def warn_if_no_unique_id(platform: str, config: ConfigType) -> None:
@@ -153,17 +154,14 @@ async def optimistic_state(entity: Any, *attributes: str) -> AsyncIterator[None]
     entity.async_write_ha_state()
 
 
-def _has_any_code(commands: Any) -> bool:
-    """Return whether a command tree holds at least one usable code."""
-    if isinstance(commands, dict):
-        return any(
-            _has_any_code(value)
-            for key, value in commands.items()
-            if not str(key).startswith(("_", "$"))
-        )
-    if isinstance(commands, list):
-        return any(_has_any_code(entry) for entry in commands)
-    return is_recorded(commands)
+def codes_dir(platform: str) -> str:
+    """Return the directory device files for a platform are cached in."""
+    return os.path.join(COMPONENT_ABS_DIR, "codes", platform)
+
+
+def device_file_path(platform: str, device_code: int) -> str:
+    """Return where a platform's device file lives on disk."""
+    return os.path.join(codes_dir(platform), f"{device_code}.json")
 
 
 class Helper:
@@ -179,8 +177,8 @@ class Helper:
         and downloads it from the repository if it isn't there yet. Raises
         HomeAssistantError with an actionable message on any failure.
         """
-        device_dir = os.path.join(COMPONENT_ABS_DIR, "codes", platform)
-        device_path = os.path.join(device_dir, f"{device_code}.json")
+        device_dir = codes_dir(platform)
+        device_path = device_file_path(platform, device_code)
 
         # os.path/os.makedirs and open() are blocking; HA forbids those in the
         # event loop, so every filesystem touch goes to the executor.
@@ -220,7 +218,7 @@ class Helper:
         # Some files in the database are templates whose codes were never
         # captured. Setting up an entity from one gives a device that silently
         # does nothing, so refuse it here instead.
-        if not _has_any_code(device_data.get("commands")):
+        if not has_any_code(device_data.get("commands")):
             raise HomeAssistantError(
                 f"The device file for {platform} code {device_code} has no codes "
                 "recorded at all, so it cannot control anything. Pick another "

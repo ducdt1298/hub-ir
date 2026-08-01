@@ -270,17 +270,53 @@ def test_every_code_decodes_the_way_broadlink_will(path: Path) -> None:
 
 
 def test_validator_baseline_matches_the_test_baseline() -> None:
-    """scripts/validate_codes.py and this file must agree on what is corrupt.
+    """The shared rules and this file must agree on what is corrupt.
 
     Two hand-maintained lists of the same facts drift apart; this keeps them
     honest so a fixed code cannot stay excused in one place only.
     """
-    import importlib.util
+    from custom_components.broadlink_ir.device_file import KNOWN_CORRUPT
 
-    spec = importlib.util.spec_from_file_location(
-        "validate_codes", REPO_ROOT / "scripts" / "validate_codes.py"
+    assert KNOWN_CORRUPT == CORRUPT_CODES
+
+
+def test_the_validator_script_runs_without_home_assistant() -> None:
+    """scripts/validate_codes.py must not drag Home Assistant in.
+
+    It shares its rules with the integration, and the tempting way to do that —
+    importing custom_components.broadlink_ir.device_file — would execute the
+    package's __init__.py and make the script unusable anywhere Home Assistant
+    is not installed. Loading it in a subprocess that cannot see homeassistant
+    proves the import stayed standalone.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    probe = textwrap.dedent(
+        """
+        import sys
+
+        class Blocked:
+            def find_spec(self, name, path=None, target=None):
+                if name == "homeassistant" or name.startswith("homeassistant."):
+                    raise ImportError("homeassistant is not installed here")
+                return None
+
+        sys.meta_path.insert(0, Blocked())
+        sys.argv = ["validate_codes.py", "codes"]
+        import runpy
+        runpy.run_path("scripts/validate_codes.py", run_name="not_main")
+        print("IMPORTED CLEANLY")
+        """
     )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
 
-    assert module.KNOWN_CORRUPT == CORRUPT_CODES
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=False,
+    )
+
+    assert "IMPORTED CLEANLY" in result.stdout, result.stderr

@@ -57,11 +57,18 @@ Copy `custom_components/broadlink_ir` into your configuration directory:
 |       |-- light.py
 |       |-- media_player.py
 |       |-- manifest.json
+|       |-- www/            <- the learning panel
 |       |-- codes/          <- created on first use, see below
 ```
 
-Then restart Home Assistant. Adding `broadlink_ir:` to `configuration.yaml` is
-optional — the platforms work without it.
+Then restart Home Assistant and add this to `configuration.yaml`:
+
+```yaml
+broadlink_ir:
+```
+
+The platforms work without that line, but it is what puts the
+[learning panel](#recording-a-device-of-your-own) in the sidebar.
 
 ### Where the device files come from
 
@@ -81,6 +88,21 @@ custom_components/broadlink_ir/codes/climate/1000.json
 ```
 
 Browse the files in [codes/](codes/) to find one to copy.
+
+## Recording a device of your own
+
+If your air conditioner is not in the tables below, the **Broadlink IR** panel in
+the sidebar records it — no Developer Tools, no SSH, no hand-written JSON.
+
+It shows one code at a time in the order the buttons sit on your remote, and
+moves on by itself the moment a code arrives, so recording a device is a run of
+button presses rather than a session of copy-and-paste. It asks up front which
+modes ignore the temperature or the fan speed, which is what turns the 180 codes
+a typical air conditioner needs into around 120. Files are saved under device
+codes from 90000 up, so they can never shadow a shipped one.
+
+Add `broadlink_ir:` to `configuration.yaml` to get the panel, then see
+[docs/PANEL.md](docs/PANEL.md).
 
 ## Configuration
 
@@ -104,6 +126,7 @@ Per-platform options and the full code tables:
 - [Media player](docs/MEDIA_PLAYER.md) — 53 device files
 - [Fan](docs/FAN.md) — 16 device files
 - [Light](docs/LIGHT.md) — 5 device files
+- [Learning panel](docs/PANEL.md) — recording a device the tables do not cover
 
 Device files are downloaded from this repository on first use and cached under
 `custom_components/broadlink_ir/codes/<platform>/`. To use your own recording,
@@ -167,6 +190,19 @@ Two behaviour changes worth knowing about before you migrate:
 - The Pronto conversion's pulse-to-tick step truncates rather than rounds.
   That reads like a redundant `int()` cast, so it is now pinned byte-for-byte by
   a test — changing it would silently alter every emitted timing.
+
+**Added — recording a device without leaving the browser**
+
+- A sidebar panel that learns codes, shows what is left to capture, tests a code
+  before keeping it, and writes a validated device file. Upstream had nothing
+  here: adding a device meant Developer Tools, SSH into the server to read
+  `.storage/broadlink_remote_<mac>_codes`, and hand-assembling the JSON. See
+  [docs/PANEL.md](docs/PANEL.md).
+- The rules that decide whether a device file is valid now live in one module
+  (`device_file.py`), shared by the integration, the panel and
+  `scripts/validate_codes.py`. The script used to carry its own copy of
+  `is_recorded`, the packet checks and the annotation prefixes, which is exactly
+  the kind of duplicate that drifts.
 
 **Fixed — a failed command no longer looks like a successful one**
 
@@ -259,6 +295,11 @@ command follows it after `delay`. If the second send fails the unit may be on
 while Home Assistant reports it off. Nothing can close that gap without feedback
 from the device.
 
+**The panel learns IR, not RF.** Broadlink learns an RF code by sweeping for the
+frequency first, which is a different flow with its own failure modes. For a
+curtain motor or an RF ceiling fan, use `remote.learn_command` with
+`command_type: rf` by hand.
+
 ## Development
 
 Home Assistant only runs on Linux, so the tests run in a container:
@@ -283,7 +324,7 @@ scripts/lint.sh          # check
 scripts/lint.sh --fix    # apply what ruff can fix safely
 ```
 
-The suite has 1297 tests. Beyond per-platform behaviour it covers:
+The suite has 1333 tests. Beyond per-platform behaviour it covers:
 
 - state restored after a restart, including values the device file can no longer
   express;
@@ -295,7 +336,11 @@ The suite has 1297 tests. Beyond per-platform behaviour it covers:
   temperature, a media player with no sources;
 - what happens when a command cannot be delivered: a missing or unavailable
   remote, a code that fails mid-send, a device file with the command absent. Each
-  platform is checked to fail the service call and keep the state it last sent.
+  platform is checked to fail the service call and keep the state it last sent;
+- the learning panel's server side: that a captured code really is recovered
+  from Broadlink's storage, that a missed press is reported instead of passing
+  silently, that consecutive captures do not return the first code over and over,
+  and that a file the panel writes both validates and loads as a working entity.
 
 ### Verified versions
 

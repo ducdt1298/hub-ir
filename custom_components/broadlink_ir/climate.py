@@ -43,6 +43,7 @@ from . import (
     warn_if_no_unique_id,
 )
 from .controller import get_controller
+from .device_file import ANNOTATION_PREFIXES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ CONF_POWER_SENSOR_RESTORE_STATE = "power_sensor_restore_state"
 _FAHRENHEIT_THRESHOLD = 40
 
 # Keys used inside command trees for documentation rather than for a command.
-_ANNOTATION_PREFIXES = ("_", "$")
+_ANNOTATION_PREFIXES = ANNOTATION_PREFIXES
 
 SUPPORT_FLAGS = (
     ClimateEntityFeature.TURN_OFF

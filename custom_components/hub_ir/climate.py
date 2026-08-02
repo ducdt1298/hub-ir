@@ -27,7 +27,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -37,11 +37,14 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from . import (
     Helper,
+    HubIRConfigEntry,
+    entry_config,
     is_recorded,
     optimistic_state,
     remote_entity_id,
     warn_if_no_unique_id,
 )
+from .const import CONF_DEVICE_INFO
 from .controller import get_controller
 from .device_file import ANNOTATION_PREFIXES
 
@@ -106,6 +109,23 @@ async def async_setup_platform(
     async_add_entities([HubIRClimate(hass, config, device_data)])
 
 
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: HubIRConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up a HubIR climate entity from a config entry."""
+    device_data = entry.runtime_data
+    try:
+        entity = HubIRClimate(hass, entry_config(entry, device_data), device_data)
+    except HomeAssistantError as err:
+        # async_validate_device already rejected everything it can see coming,
+        # so anything left is permanent: retrying would only repeat it.
+        raise ConfigEntryError(str(err)) from err
+
+    async_add_entities([entity])
+
+
 class HubIRClimate(ClimateEntity, RestoreEntity):
     """A climate entity driven by IR/RF codes from a device file."""
 
@@ -117,6 +137,9 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
         """Set the entity up from its YAML config and its device file."""
         self.hass = hass
         self._unique_id = config.get(CONF_UNIQUE_ID)
+        # Only a config entry supplies this; a YAML entity leaves device_info
+        # None and stays out of the device registry.
+        self._attr_device_info = config.get(CONF_DEVICE_INFO)
         self._name = config.get(CONF_NAME)
         self._device_code = config.get(CONF_DEVICE_CODE)
         self._controller_data = config.get(CONF_CONTROLLER_DATA)

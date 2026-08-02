@@ -11,6 +11,27 @@
  * for over the websocket. This file is the hands, not the head.
  */
 
+/**
+ * The HubIR mark, inline because the content security policy blocks anything
+ * this file would try to fetch. Kept in step with brand/hub-ir-icon.svg, which
+ * is what the PNGs for home-assistant/brands are rendered from.
+ */
+const LOGO = `
+<svg viewBox="0 0 256 256" width="28" height="28" aria-hidden="true">
+  <defs>
+    <linearGradient id="hubir-wave" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#FF6B35"/><stop offset="1" stop-color="#FFB627"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#14243A"/>
+  <g fill="none" stroke="url(#hubir-wave)" stroke-linecap="round">
+    <path d="M68 136 A 52 52 0 0 1 120 188" stroke-width="17"/>
+    <path d="M68 92 A 96 96 0 0 1 164 188" stroke-width="16" opacity=".82"/>
+    <path d="M68 48 A 140 140 0 0 1 208 188" stroke-width="15" opacity=".58"/>
+  </g>
+  <circle cx="68" cy="188" r="19" fill="url(#hubir-wave)"/>
+</svg>`;
+
 const PLATFORM_LABELS = {
   climate: "Air conditioner",
   fan: "Fan",
@@ -74,6 +95,7 @@ const STYLES = `
     padding: .75rem 1rem; background: var(--app-header-background-color, var(--primary-color));
     color: var(--app-header-text-color, #fff);
   }
+  header svg { flex: 0 0 auto; border-radius: 6px; }
   .card {
     background: var(--card-background-color, #fff);
     border-radius: var(--ha-card-border-radius, 12px);
@@ -125,6 +147,8 @@ const STYLES = `
   table { width: 100%; border-collapse: collapse; font-size: .85rem; }
   td, th { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--divider-color, #eee); }
   ul { margin: .4rem 0; padding-left: 1.2rem; font-size: .85rem; }
+  a { color: var(--primary-color); }
+  summary { cursor: pointer; }
 `;
 
 class BroadlinkIrPanel extends HTMLElement {
@@ -150,6 +174,9 @@ class BroadlinkIrPanel extends HTMLElement {
       running: false,
       status: null,
       saved: null,
+      entityName: "",
+      creating: false,
+      created: null,
     };
   }
 
@@ -394,9 +421,42 @@ class BroadlinkIrPanel extends HTMLElement {
         spec: this._specForServer(),
         codes: this._state.codes,
       });
-      this._set({ step: "saved", saved: result, status: null });
+      this._set({
+        step: "saved",
+        saved: result,
+        status: null,
+        entityName: defaultName(this._state.spec, this._state.platform),
+        creating: false,
+        // Clearing this matters: saving a second file after a create would
+        // otherwise show the first entity's success over the new file.
+        created: null,
+      });
     } catch (err) {
       this._set({ status: { kind: "error", text: describe(err) } });
+    }
+  }
+
+  /** Turn the device file just saved into a live entity, with no restart. */
+  async _create() {
+    const s = this._state;
+    const name = String(s.entityName || "").trim();
+    if (!name) {
+      this._set({ status: { kind: "error", text: "Give it a name first." } });
+      return;
+    }
+
+    this._set({ creating: true, status: null });
+    try {
+      const created = await this._call({
+        type: "hub_ir/create_entity",
+        platform: s.platform,
+        device_code: s.saved.device_code,
+        controller_data: s.remote,
+        name,
+      });
+      this._set({ creating: false, created, status: null });
+    } catch (err) {
+      this._set({ creating: false, status: { kind: "error", text: describe(err) } });
     }
   }
 
@@ -405,7 +465,7 @@ class BroadlinkIrPanel extends HTMLElement {
   _render() {
     const root = this.shadowRoot;
     root.innerHTML = `<style>${STYLES}</style>
-      <header><h1>HubIR</h1></header>
+      <header>${LOGO}<h1>HubIR</h1></header>
       <div class="wrap">${this._body()}</div>`;
     this._bind();
   }
@@ -439,18 +499,7 @@ class BroadlinkIrPanel extends HTMLElement {
           </div>
           <div>
             <label for="remote">Broadlink remote</label>
-            <select id="remote">
-              ${s.remotes
-                .map(
-                  (r) =>
-                    `<option value="${esc(r.entity_id)}"${
-                      r.entity_id === s.remote ? " selected" : ""
-                    }${r.can_learn ? "" : " disabled"}>${esc(r.name)}${
-                      r.can_learn ? "" : " — not a Broadlink remote"
-                    }</option>`
-                )
-                .join("")}
-            </select>
+            ${this._remoteSelect()}
           </div>
           <div>
             <label for="device_code">New device code</label>
@@ -704,13 +753,6 @@ class BroadlinkIrPanel extends HTMLElement {
 
   _savedView() {
     const s = this._state;
-    const platform = s.platform;
-    const yaml = `${platform}:
-  - platform: hub_ir
-    name: My ${PLATFORM_LABELS[platform]}
-    unique_id: my_${platform}
-    device_code: ${s.saved.device_code}
-    controller_data: ${s.remote}`;
 
     return `<div class="card">
       <h2>Saved</h2>
@@ -721,10 +763,114 @@ class BroadlinkIrPanel extends HTMLElement {
              <ul>${s.saved.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>`
           : `<div class="status ok">No gaps found.</div>`
       }
-      <p style="margin-top:1rem">Add this to <code>configuration.yaml</code>, then restart:</p>
-      <pre>${esc(yaml)}</pre>
-      <div class="row"><button id="restart">Teach another device</button></div>
+    </div>
+
+    ${s.created ? this._createdView() : this._createView()}
+
+    <div class="row"><button id="restart">Teach another device</button></div>`;
+  }
+
+  /**
+   * Offer to create the entity here, rather than sending someone to a text
+   * editor and a restart.
+   *
+   * Everything the config flow needs was settled minutes ago — the device type,
+   * the code just written, the remote the codes came through — so the name is
+   * the only question left, and even that has a reasonable guess. The server
+   * starts the flow; this side does not need to know its steps.
+   */
+  _createView() {
+    const s = this._state;
+
+    return `<div class="card">
+      <h2>Add it to Home Assistant</h2>
+      <p class="muted">No YAML, no restart — the entity appears straight away.</p>
+      <div class="grid">
+        <div>
+          <label for="entity_name">Name</label>
+          <input id="entity_name" value="${esc(s.entityName)}"
+                 placeholder="My ${esc(PLATFORM_LABELS[s.platform])}" />
+        </div>
+        <div>
+          <label for="remote">Broadlink remote</label>
+          ${this._remoteSelect()}
+        </div>
+      </div>
+      <p class="muted" style="margin-top:.5rem">
+        Already set to the remote you captured through; change it only if this
+        device sits in front of a different one.
+      </p>
+      <div class="row" style="margin-top:1rem">
+        <button class="primary" id="create" ${s.creating ? "disabled" : ""}>
+          ${s.creating ? "Creating…" : "Create the entity"}
+        </button>
+      </div>
+      ${this._statusView()}
+      <details style="margin-top:1rem">
+        <summary class="muted">Or write it into configuration.yaml yourself</summary>
+        <p class="muted">Only worth it if you keep your entities in YAML. It needs
+          a restart, and the two ways of configuring one device do not know about
+          each other — so pick one, not both.</p>
+        <pre>${esc(this._yaml())}</pre>
+      </details>
     </div>`;
+  }
+
+  _createdView() {
+    const s = this._state;
+    const created = s.created;
+    const label = created.entity_id || created.title;
+
+    return `<div class="card">
+      <h2>${created.existing ? "Already in Home Assistant" : "Added to Home Assistant"}</h2>
+      <div class="status ok">
+        ${
+          created.existing
+            ? `<code>${esc(label)}</code> already uses device code
+               ${esc(s.saved.device_code)}. It has been reloaded, so it is running
+               on the file you just saved.`
+            : `Created <code>${esc(label)}</code>. Nothing to restart.`
+        }
+      </div>
+      <div class="row" style="margin-top:1rem">
+        ${created.entity_id ? `<button class="primary" id="show">Show it</button>` : ""}
+        <a href="/config/integrations/integration/hub_ir">Manage HubIR devices</a>
+      </div>
+      <p class="muted" style="margin-top:.75rem">
+        Rename it, put it in an area, or point it at a different remote from
+        Settings &rarr; Devices &amp; services &rarr; HubIR.
+      </p>
+    </div>`;
+  }
+
+  /** The remote picker, shared by the setup step and the create step. */
+  _remoteSelect() {
+    const s = this._state;
+    return `<select id="remote">
+      ${s.remotes
+        .map(
+          (r) =>
+            `<option value="${esc(r.entity_id)}"${
+              r.entity_id === s.remote ? " selected" : ""
+            }${r.can_learn ? "" : " disabled"}>${esc(r.name)}${
+              r.can_learn ? "" : " — not a Broadlink remote"
+            }</option>`
+        )
+        .join("")}
+    </select>`;
+  }
+
+  /** The manual escape hatch, for people who keep their entities in YAML. */
+  _yaml() {
+    const s = this._state;
+    const name = String(s.entityName || "").trim() ||
+      `My ${PLATFORM_LABELS[s.platform]}`;
+    return `${s.platform}:
+  - platform: hub_ir
+    name: ${name}
+    unique_id: ${slugify(name) || `my_${s.platform}`}
+    device_code: ${s.saved.device_code}
+    controller_data: ${s.remote}`;
   }
 
   _statusView() {
@@ -757,6 +903,8 @@ class BroadlinkIrPanel extends HTMLElement {
         skipped: {},
         index: 0,
         status: null,
+        entityName: "",
+        created: null,
       });
       this._render();
       await this._refreshCustomCodes();
@@ -826,6 +974,25 @@ class BroadlinkIrPanel extends HTMLElement {
     on("test", "click", () => this._test());
     on("save", "click", () => this._save());
     on("back", "click", () => this._set({ step: "setup" }));
+
+    // Stored without re-rendering, like manufacturer and models: rebuilding the
+    // shadow root on every keystroke would lose the caret.
+    on("entity_name", "input", (event) => {
+      this._state.entityName = event.target.value;
+    });
+    // change fires on blur, a safe moment to redraw the YAML fallback with the
+    // name that was actually typed.
+    on("entity_name", "change", () => this._render());
+    on("create", "click", () => this._create());
+    on("show", "click", () => {
+      this.dispatchEvent(
+        new CustomEvent("hass-more-info", {
+          detail: { entityId: this._state.created.entity_id },
+          bubbles: true,
+          composed: true,
+        })
+      );
+    });
     on("restart", "click", async () => {
       Object.assign(this._state, {
         step: "setup",
@@ -836,6 +1003,12 @@ class BroadlinkIrPanel extends HTMLElement {
         saved: null,
         templateCode: "",
         deviceCode: (this._state.deviceCode || 0) + 1,
+        entityName: "",
+        creating: false,
+        created: null,
+        // Never cleared before, so a failed create would follow the user back
+        // to a fresh setup screen as a red box about nothing.
+        status: null,
       });
       // The recording just saved should show up in the list straight away.
       await this._refreshCustomCodes();
@@ -879,6 +1052,22 @@ function splitList(value, numeric) {
     .map((entry) => entry.trim())
     .filter(Boolean);
   return numeric ? parts.map(Number).filter((entry) => !Number.isNaN(entry)) : parts;
+}
+
+function slugify(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/** Guess a name from what the user already typed on the identify step. */
+function defaultName(spec, platform) {
+  const model = String(spec.models || "").split(",")[0].trim();
+  const guess = [String(spec.manufacturer || "").trim(), model]
+    .filter(Boolean)
+    .join(" ");
+  return guess || `My ${PLATFORM_LABELS[platform]}`;
 }
 
 function esc(value) {

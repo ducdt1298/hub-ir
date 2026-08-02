@@ -9,19 +9,19 @@ The panel does all of it in one place.
 
 ## Turning it on
 
-**HubIR** appears in the sidebar for administrators, because the panel
-writes into your configuration directory.
+**HubIR** appears in the sidebar for administrators, because the panel writes
+into your configuration directory.
 
-The panel comes up whenever the integration loads, which happens as soon as any
-`platform: hub_ir` is configured. On a fresh install there is nothing to
-load it yet, so add this to `configuration.yaml` and restart:
+It comes up as soon as the integration loads, which happens the moment anything
+uses it: a config entry added from **Settings → Devices & services → Add
+integration → HubIR**, or a `platform: hub_ir` in `configuration.yaml`.
+
+On a completely fresh install with neither, adding the integration once is the
+shortest route — no restart. The old way still works if you prefer YAML:
 
 ```yaml
 hub_ir:
 ```
-
-Once you have a platform configured that line is optional, but leaving it in
-does no harm.
 
 ## What it needs
 
@@ -71,21 +71,33 @@ Each code times out after 30 seconds. Alongside:
 - **Stop** ends the run; your progress stays, and you can save at any point and
   come back to it.
 
-**5 · Save.** The file is validated with exactly the same rules as
+**5 · Save, then add it.** The file is validated with exactly the same rules as
 `scripts/validate_codes.py` before anything is written, so it cannot produce an
-entity the integration would choke on. The panel then shows the
-`configuration.yaml` block to paste:
+entity the integration would choke on.
 
-```yaml
-climate:
-  - platform: hub_ir
-    name: My air conditioner
-    unique_id: my_climate
-    device_code: 90000
-    controller_data: remote.bedroom_remote
-```
+The panel then offers to create the entity. It already knows the device code it
+wrote and the remote you learned through, so the name is the only question left
+— and it guesses that from the manufacturer and model you typed. Press **Create
+the entity** and it appears. No `configuration.yaml`, no restart.
 
-Restart, and the entity appears.
+What you get is an ordinary config entry, so you can rename it, move it to an
+area, or point it at a different remote from **Settings → Devices & services →
+HubIR**.
+
+If you keep your entities in YAML instead, the block to paste is still there,
+folded under *Or write it into configuration.yaml yourself*. That route needs a
+restart — and do not use both for one device, or you will get two entities
+fighting over the same remote.
+
+## Teaching more codes to a device you have already added
+
+Reopen its device file, capture the codes you skipped, and save to the same
+device code. Press **Create the entity** again: the panel notices the entity
+already exists, reloads it onto the file you just saved, and says so. The new
+codes work immediately.
+
+Without that reload the running entity would keep the device file it parsed when
+it was set up, and the codes you just learned would do nothing until a restart.
 
 ## The other device types
 
@@ -119,7 +131,9 @@ into a file of your own.
 | *The remote entity … is turned off* | Turn the remote entity on; Broadlink cannot learn while it is off. |
 | *… is unavailable* | The Broadlink is unreachable. Check power and network. |
 | *… needs a Broadlink remote* | The selected remote belongs to another integration, whose codes this cannot read. |
-| No panel in the sidebar | `hub_ir:` is missing from `configuration.yaml`, or you are not an administrator. |
+| No panel in the sidebar | Nothing has loaded the integration yet — add it from Settings → Devices & services → Add integration — or you are not an administrator. |
+| *There is already a HubIR entity for this device code and remote* | You added this device before. The existing entity was reloaded onto the file you just saved; there is nothing else to do. |
+| *This version of HubIR cannot add entities from the panel* | The installed version has no config flow. Update through HACS, or use the `configuration.yaml` block folded under the create button. |
 
 ## What it does not do
 

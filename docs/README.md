@@ -11,6 +11,31 @@ Setup instructions and the device-code tables for each platform:
 Installation, migration from SmartIR and the list of changes against upstream
 are in the [top-level README](../README.md).
 
+## Creating entities
+
+There are two ways, and they work side by side.
+
+**From the UI** — Settings → Devices & services → **Add integration** → HubIR.
+Pick the kind of device, give it a name, a device code and a Broadlink remote.
+The entity appears without a restart and is grouped into a Home Assistant device
+carrying the manufacturer and model from the device file. The kind of device and
+the device code are fixed at creation; the remote, the delay, the helper sensors
+and a media player's source names are changed afterwards under **Configure**,
+which reloads the entity by itself.
+
+**In `configuration.yaml`** — exactly as before, with every option each platform
+page documents. Nothing about it has changed, and YAML entities behave
+identically to how they always did, except that they are not grouped into
+devices; Home Assistant only builds one for entities that belong to a config
+entry.
+
+Configure any one device through one route or the other. Doing both produces two
+entities sending to the same remote.
+
+The [learning panel](PANEL.md) offers to create the entity for you as soon as it
+has written a recording, which is the shortest path of all for a device the
+tables do not cover.
+
 ## Controller support
 
 This fork supports the [Broadlink](https://www.home-assistant.io/integrations/broadlink/)

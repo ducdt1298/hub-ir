@@ -6,6 +6,20 @@ For this platform to work, we need a .json file containing all the necessary IR 
 Find your device's brand code [here](CLIMATE.md#available-codes-for-climate-devices) and add the number in the `device_code` field. If your device is not working, you will need to learn your own codes and place the Json file in `hub_ir/codes/climate` subfolders. ~~[Keite Trần](https://github.com/keitetran/HubIRTools) developed [an amazing web-based app](https://keitetran.github.io/HubIRTools/) for this job.~~
 _Please note that the device_code field only accepts positive numbers. The .json extension is not required._
 
+
+## Adding one from the UI
+
+**Settings → Devices & services → Add integration → HubIR** creates one of these
+without touching `configuration.yaml` and without a restart, and groups it into a
+Home Assistant device. `name` and `device_code` are asked once and fixed
+afterwards — a different device file is a different device, so add another
+entity for it. Everything else below is editable later under **Configure**, and
+the entity reloads itself when you save. `unique_id` is not asked for: the config
+entry supplies one.
+
+The YAML below keeps working exactly as it always has. Use one or the other for
+any given device, not both.
+
 ## Configuration variables:
 | Name | Type | Default | Description |
 | ---- | :--: | :-----: | ----------- |

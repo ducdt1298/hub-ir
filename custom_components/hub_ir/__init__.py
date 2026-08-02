@@ -18,12 +18,29 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.const import CONF_NAME
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_NAME, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import (
+    ConfigEntryError,
+    ConfigEntryNotReady,
+    HomeAssistantError,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.typing import ConfigType
+
+from .const import (
+    CONF_CONTROLLER_DATA,
+    CONF_DELAY,
+    CONF_DEVICE_CODE,
+    CONF_DEVICE_INFO,
+    CONF_PLATFORM,
+    CONF_UNIQUE_ID,
+    DEFAULT_DELAY,
+    DEFAULT_NAMES,
+)
 
 # Re-exported: the device-file rules live in a module free of Home Assistant so
 # that scripts/validate_codes.py can share them, but the platforms import them
@@ -33,7 +50,7 @@ from .device_file import has_any_code, is_recorded  # noqa: F401
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "hub_ir"
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 
 COMPONENT_ABS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -92,6 +109,108 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     await async_register_panel(hass)
 
     return True
+
+
+# The device data the entry was set up with, carried from async_setup_entry to
+# the platform that builds the entity.
+type HubIRConfigEntry = ConfigEntry[dict[str, Any]]
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: HubIRConfigEntry) -> bool:
+    """Set up the one entity a config entry describes.
+
+    The device file is loaded and checked here rather than in the platform, so
+    that "retry later" and "this will never work" are decided in one place with
+    the same meaning on every Home Assistant version.
+    """
+    platform = entry.data[CONF_PLATFORM]
+    config = entry_config(entry)
+
+    # Imported here for the same reason as the frontend and websocket imports
+    # above: validation reaches .controller, which imports Helper back out of
+    # this module, so a module-scope import would be circular.
+    from .validation import DeviceFileError, async_validate_device  # noqa: PLC0415
+
+    try:
+        entry.runtime_data = await async_validate_device(
+            hass,
+            platform,
+            config[CONF_DEVICE_CODE],
+            config[CONF_CONTROLLER_DATA],
+        )
+    except DeviceFileError as err:
+        if err.transient:
+            # The device file is not on disk and could not be fetched, which is
+            # usually a network that is not up yet. Let Home Assistant retry.
+            raise ConfigEntryNotReady(str(err)) from err
+        raise ConfigEntryError(str(err)) from err
+
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+    await hass.config_entries.async_forward_entry_setups(entry, [Platform(platform)])
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: HubIRConfigEntry) -> bool:
+    """Tear the entry's entity down again."""
+    return await hass.config_entries.async_unload_platforms(
+        entry, [Platform(entry.data[CONF_PLATFORM])]
+    )
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: HubIRConfigEntry) -> None:
+    """Rebuild the entity after the options flow, so no restart is needed."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+def entry_config(
+    entry: HubIRConfigEntry, device_data: dict[str, Any] | None = None
+) -> ConfigType:
+    """Return the entity config a config entry describes.
+
+    Shaped exactly like the config a YAML platform hands its entity, so the
+    entity classes need no idea which of the two they came from. ``unique_id``
+    is the entry id: identity belongs to the entry, and that survives every
+    rename the user might do afterwards.
+    """
+    platform = entry.data[CONF_PLATFORM]
+    config: dict[str, Any] = {
+        CONF_NAME: DEFAULT_NAMES[platform],
+        CONF_DELAY: DEFAULT_DELAY,
+        **entry.data,
+        **entry.options,
+        CONF_UNIQUE_ID: entry.entry_id,
+    }
+    if device_data is not None:
+        config[CONF_DEVICE_INFO] = device_info_for(entry, device_data)
+    return config
+
+
+def device_info_for(entry: ConfigEntry, device_data: dict[str, Any]) -> DeviceInfo:
+    """Return the device a config entry's entity belongs to.
+
+    Only this path builds one. Home Assistant registers a device solely for
+    entities that belong to a config entry, so a YAML entity is given no
+    device_info, gets None, and stays out of the device registry.
+    """
+    models = device_data.get("supportedModels") or []
+    if isinstance(models, str):
+        models = [models]
+
+    model: str | None = None
+    if models:
+        model = str(models[0])
+        if len(models) > 1:
+            # One shipped media_player file lists 34 models. Naming them all
+            # makes the device page unreadable, and the full list is already an
+            # attribute on the entity.
+            model = f"{model} (+{len(models) - 1} more)"
+
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.title,
+        manufacturer=str(device_data.get("manufacturer") or "").strip() or None,
+        model=model,
+    )
 
 
 def remote_entity_id(value: Any) -> str:

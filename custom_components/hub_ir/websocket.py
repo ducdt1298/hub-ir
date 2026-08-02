@@ -18,11 +18,23 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.data_entry_flow import FlowResultType, UnknownHandler
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+import homeassistant.helpers.config_validation as cv
 
-from . import Helper, _write_atomic, codes_dir, device_file_path
+from . import (
+    DOMAIN,
+    Helper,
+    _write_atomic,
+    codes_dir,
+    device_file_path,
+    remote_entity_id,
+)
+from .const import CONF_CONTROLLER_DATA, CONF_DEVICE_CODE, CONF_PLATFORM, SOURCE_PANEL
 from .controller import BROADLINK_CONTROLLER, get_controller
 from .device_file import (
     CUSTOM_CODE_START,
@@ -49,6 +61,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_save,
         ws_learn,
         ws_send,
+        ws_create_entity,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -324,3 +337,144 @@ async def ws_send(
         return
 
     connection.send_result(msg["id"], {"sent": True})
+
+
+def _matching_entry(hass: HomeAssistant, msg: dict[str, Any]) -> ConfigEntry | None:
+    """Return the config entry that already describes this device, if any."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if (
+            entry.data.get(CONF_PLATFORM) == msg["platform"]
+            and entry.data.get(CONF_DEVICE_CODE) == msg["device_code"]
+            and entry.options.get(CONF_CONTROLLER_DATA) == msg["controller_data"]
+        ):
+            return entry
+    return None
+
+
+def _entity_id_for(hass: HomeAssistant, entry_id: str) -> str | None:
+    """Return the entity a config entry produced, if it has appeared yet."""
+    entities = er.async_entries_for_config_entry(er.async_get(hass), entry_id)
+    return entities[0].entity_id if entities else None
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hub_ir/create_entity",
+        vol.Required("platform"): PLATFORM_SELECTOR,
+        vol.Required("device_code"): vol.All(int, vol.Range(min=0)),
+        vol.Required("controller_data"): remote_entity_id,
+        vol.Required("name"): vol.All(cv.string, vol.Length(min=1)),
+    }
+)
+@websocket_api.async_response
+async def ws_create_entity(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Create the entity for a device file the panel has just written.
+
+    The last step that used to mean leaving the browser. Everything the config
+    flow asks for was settled while learning, so the flow is started here with
+    the answers already filled in rather than sending someone to Settings to
+    type them a second time. Deciding it on this side also keeps the flow's step
+    names out of the JavaScript, where nothing tests them.
+    """
+    data = {
+        CONF_PLATFORM: msg["platform"],
+        CONF_DEVICE_CODE: msg["device_code"],
+        CONF_CONTROLLER_DATA: msg["controller_data"],
+        CONF_NAME: msg["name"],
+    }
+
+    try:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_PANEL}, data=data
+        )
+    except UnknownHandler:
+        connection.send_error(
+            msg["id"],
+            "no_config_flow",
+            "This version of HubIR cannot add entities from the panel. Add the "
+            "device to configuration.yaml instead and restart",
+        )
+        return
+    except HomeAssistantError as err:
+        connection.send_error(msg["id"], "create_failed", str(err))
+        return
+
+    if result["type"] is FlowResultType.CREATE_ENTRY:
+        entry = result["result"]
+        connection.send_result(
+            msg["id"],
+            {
+                "entry_id": entry.entry_id,
+                "title": entry.title,
+                # None only while the platform is still adding the entity; the
+                # panel falls back to naming the entry.
+                "entity_id": _entity_id_for(hass, entry.entry_id),
+                "existing": False,
+            },
+        )
+        return
+
+    if result["type"] is FlowResultType.ABORT:
+        # Teaching a few more codes to a device that is already set up is the
+        # second most common way through this panel. The entry is right; only
+        # its device file has changed. Reload it and report success, rather than
+        # an error the user can do nothing useful with.
+        if (entry := _matching_entry(hass, msg)) is not None:
+            await hass.config_entries.async_reload(entry.entry_id)
+            connection.send_result(
+                msg["id"],
+                {
+                    "entry_id": entry.entry_id,
+                    "title": entry.title,
+                    "entity_id": _entity_id_for(hass, entry.entry_id),
+                    "existing": True,
+                },
+            )
+            return
+
+        connection.send_error(
+            msg["id"], "create_failed", _abort_message(result.get("reason", ""))
+        )
+        return
+
+    connection.send_error(
+        msg["id"],
+        "create_failed",
+        "The HubIR config flow asked for more than the panel can answer. Add "
+        "the device from Settings instead",
+    )
+
+
+# The abort reasons the flow can return, in words the panel can show. Keyed by
+# the same strings as translations/en.json, but the panel has no access to a
+# translated flow result, so they are spelled out again here.
+_ABORT_MESSAGES = {
+    "already_configured": (
+        "There is already a HubIR entity for this device code and remote"
+    ),
+    "cannot_load_device_file": (
+        "The device file could not be read back after saving it"
+    ),
+    "invalid_device_file": "The saved device file cannot produce a working entity",
+    "unsupported_controller": (
+        "That device file was recorded for a different kind of hub"
+    ),
+    "unsupported_encoding": (
+        "That device file stores its codes in an encoding this integration cannot send"
+    ),
+    "no_operation_modes": (
+        "That device file lists no operation mode Home Assistant recognises"
+    ),
+    "no_fan_speeds": "That device file lists no fan speeds",
+    "remote_not_found": "That remote entity does not exist",
+}
+
+
+def _abort_message(reason: str) -> str:
+    """Return something a person can act on for a flow abort reason."""
+    return _ABORT_MESSAGES.get(reason) or f"The entity could not be created: {reason}"

@@ -17,7 +17,7 @@ from homeassistant.components.fan import (
 )
 from homeassistant.const import CONF_NAME, STATE_OFF, STATE_ON
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -28,7 +28,15 @@ from homeassistant.util.percentage import (
     percentage_to_ordered_list_item,
 )
 
-from . import Helper, optimistic_state, remote_entity_id, warn_if_no_unique_id
+from . import (
+    Helper,
+    HubIRConfigEntry,
+    entry_config,
+    optimistic_state,
+    remote_entity_id,
+    warn_if_no_unique_id,
+)
+from .const import CONF_DEVICE_INFO
 from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +79,23 @@ async def async_setup_platform(
     async_add_entities([HubIRFan(hass, config, device_data)])
 
 
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: HubIRConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up a HubIR fan from a config entry."""
+    device_data = entry.runtime_data
+    try:
+        entity = HubIRFan(hass, entry_config(entry, device_data), device_data)
+    except HomeAssistantError as err:
+        # async_validate_device already rejected everything it can see coming,
+        # so anything left is permanent: retrying would only repeat it.
+        raise ConfigEntryError(str(err)) from err
+
+    async_add_entities([entity])
+
+
 class HubIRFan(FanEntity, RestoreEntity):
     """A fan entity driven by IR/RF codes from a device file."""
 
@@ -82,6 +107,9 @@ class HubIRFan(FanEntity, RestoreEntity):
         """Set the entity up from its YAML config and its device file."""
         self.hass = hass
         self._unique_id = config.get(CONF_UNIQUE_ID)
+        # Only a config entry supplies this; a YAML entity leaves device_info
+        # None and stays out of the device registry.
+        self._attr_device_info = config.get(CONF_DEVICE_INFO)
         self._name = config.get(CONF_NAME)
         self._device_code = config.get(CONF_DEVICE_CODE)
         self._controller_data = config.get(CONF_CONTROLLER_DATA)

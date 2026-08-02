@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="HubIR">
+  <title>HubIR</title>
+  <!--
+    A hub emitting infrared: one solid node, three widening arcs.
+
+    No lettering, because the same file has to read at 20px in a sidebar and at
+    256px on the integrations page, and two characters at 20px are a smudge.
+    The palette is the point as well: infrared sits at the warm end of the
+    spectrum, so the waves run orange into amber rather than the Home Assistant
+    blue that a dozen other integrations already use.
+  -->
+  <defs>
+    <linearGradient id="wave" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#FF6B35"/>
+      <stop offset="1" stop-color="#FFB627"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="56" fill="#14243A"/>
+
+  <g fill="none" stroke="url(#wave)" stroke-linecap="round">
+    <path d="M68 136 A 52 52 0 0 1 120 188" stroke-width="17"/>
+    <path d="M68 92  A 96 96 0 0 1 164 188" stroke-width="16" opacity=".82"/>
+    <path d="M68 48  A 140 140 0 0 1 208 188" stroke-width="15" opacity=".58"/>
+  </g>
+
+  <circle cx="68" cy="188" r="19" fill="url(#wave)"/>
+</svg>

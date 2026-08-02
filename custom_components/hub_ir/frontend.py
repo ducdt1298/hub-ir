@@ -14,7 +14,11 @@ _LOGGER = logging.getLogger(__name__)
 
 PANEL_URL_PATH = "hub-ir"
 PANEL_TITLE = "HubIR"
-PANEL_ICON = "mdi:remote"
+# A remote with signal waves, which is both what this does and what the HubIR
+# mark draws. The sidebar takes an MDI name rather than an image, and shipping a
+# custom icon set would mean a JavaScript file loaded on every Home Assistant
+# page for every user — far too much for one sidebar entry.
+PANEL_ICON = "mdi:remote-tv"
 
 WEBCOMPONENT_NAME = "hub-ir-panel"
 _MODULE_FILE = "hub-ir-panel.js"

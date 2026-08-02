@@ -1,6 +1,8 @@
 {
   "domain": "hub_ir",
   "name": "HubIR",
+  "config_flow": true,
+  "integration_type": "device",
   "documentation": "https://github.com/ducdt1298/hub-ir",
   "issue_tracker": "https://github.com/ducdt1298/hub-ir/issues",
   "dependencies": ["remote", "http", "websocket_api"],
@@ -9,5 +11,5 @@
   "requirements": [],
   "iot_class": "assumed_state",
   "homeassistant": "2025.1.0",
-  "version": "3.0.0"
+  "version": "3.1.0"
 }

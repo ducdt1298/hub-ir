@@ -1,3 +1,5 @@
+<img src="brand/logo.png" alt="HubIR" width="300">
+
 # HubIR for Home Assistant
 
 Control **climate devices**, **media players**, **fans** and **lights** over IR/RF
@@ -56,19 +58,28 @@ Copy `custom_components/hub_ir` into your configuration directory:
 |   |-- hub_ir/
 |       |-- __init__.py
 |       |-- climate.py
+|       |-- config_flow.py
+|       |-- const.py
 |       |-- controller.py
 |       |-- fan.py
 |       |-- light.py
 |       |-- media_player.py
+|       |-- validation.py
 |       |-- manifest.json
+|       |-- strings.json
+|       |-- translations/
 |       |-- www/            <- the learning panel
 |       |-- codes/          <- created on first use, see below
 ```
 
-Then restart Home Assistant. On a fresh install, also add this to
-`configuration.yaml` so the integration loads before you have configured any
-platform — that is what puts the
-[learning panel](#recording-a-device-of-your-own) in the sidebar:
+Then restart Home Assistant and add the integration from **Settings → Devices
+& services → Add integration → HubIR**. That creates your first entity and, at
+the same time, puts the [learning panel](#recording-a-device-of-your-own) in the
+sidebar.
+
+If you would rather configure everything in YAML, this line does the same for
+the panel and nothing else. It is not needed once anything else has loaded the
+integration:
 
 ```yaml
 hub_ir:
@@ -110,11 +121,40 @@ shipped ones — carrying over its settings and every code it already holds, so
 only the gaps are captured. Saving always writes to a code of your own, so the
 original is never touched.
 
+When it has saved the file it offers to create the entity there and then, so
+recording a device the tables do not cover never involves a text editor or a
+restart at all.
+
 See [docs/PANEL.md](docs/PANEL.md).
 
 ## Configuration
 
-Find your device's code in the tables below, then configure a platform:
+Find your device's code in the tables below, then add it either way. The two
+coexist, so an existing `configuration.yaml` keeps working untouched — but
+configure any one device through one of them, not both, or you will end up with
+two entities fighting over the same remote.
+
+### From the UI, with no restart
+
+**Settings → Devices & services → Add integration → HubIR**, pick air
+conditioner, fan, light or TV, then fill in the name, the device code and the
+Broadlink remote. A device code that cannot work is rejected in the form rather
+than becoming a broken entity, and the entity appears immediately.
+
+The entity is grouped into a device named after it, carrying the manufacturer
+and model from the device file. **Configure** on the entry changes the remote,
+the delay, the helper sensors and — for a media player — the source names; the
+entity reloads itself, so there is still nothing to restart.
+
+The device type and the device code are fixed when the entity is created. A
+different device file is a different device: add another entity for it.
+
+The [learning panel](#recording-a-device-of-your-own) offers to do all of this
+for you the moment it has saved a recording.
+
+### In `configuration.yaml`
+
+Unchanged, and still fully supported:
 
 ```yaml
 climate:
@@ -127,6 +167,9 @@ climate:
     humidity_sensor: sensor.humidity
     power_sensor: binary_sensor.ac_power
 ```
+
+YAML entities are not grouped into devices; see
+[Known limitations](#known-limitations).
 
 Per-platform options and the full code tables:
 
@@ -221,6 +264,28 @@ Two behaviour changes worth knowing about before you migrate:
   That reads like a redundant `int()` cast, so it is now pinned byte-for-byte by
   a test — changing it would silently alter every emitted timing.
 
+**Added — entities without editing YAML**
+
+- A config flow: **Settings → Devices & services → Add integration → HubIR**
+  creates an entity, and **Configure** changes its remote, delay and helper
+  sensors afterwards with the entity reloading itself. Neither needs a restart,
+  and neither needs SSH. YAML configuration is untouched and keeps working
+  alongside it.
+- Entities created that way are grouped into a Home Assistant device carrying
+  the manufacturer and model from the device file — something a YAML platform
+  cannot do at all.
+- A device code that cannot produce a working entity — wrong hub, an encoding
+  this fork cannot send, no usable operation modes — is now rejected in the form
+  you are looking at, rather than becoming a broken entity and a traceback in
+  the log a minute later.
+- The learning panel finishes the job: after saving a recording it offers to
+  create the entity, prefilled with the device code it just wrote and the remote
+  you learned through. Saving over a device you already added reloads it, so
+  extra codes take effect without a restart.
+- HubIR has a logo. It lives in [brand/](brand/); the integrations page and HACS
+  will show it once it is accepted into
+  [home-assistant/brands](https://github.com/home-assistant/brands).
+
 **Added — recording a device without leaving the browser**
 
 - A sidebar panel that learns codes, shows what is left to capture, tests a code
@@ -311,14 +376,14 @@ air conditioner was listening, so these entities assume it was — that is what
 reflect reality. What *is* now detected is a command that never got sent at all:
 an unavailable remote, a wrong `controller_data`, a corrupt or missing code.
 
-**Entities are not grouped into devices.** Home Assistant creates a device only
-for entities belonging to a config entry, and these platforms are configured in
-YAML. `entity_platform` guards device registration with `if self.config_entry`,
-and `device_registry.async_get_or_create` requires a `config_entry_id`, so
-returning `device_info` would have no effect. Grouping these into devices needs a
-config flow, which would change how every user configures the integration; it is
-not something this fork does today. `unique_id` still gives each entity a registry
-entry, which is what renaming and area assignment actually need.
+**YAML entities are not grouped into devices.** Home Assistant creates a device
+only for entities belonging to a config entry. `entity_platform` guards device
+registration with `if self.config_entry`, and
+`device_registry.async_get_or_create` requires a `config_entry_id`, so returning
+`device_info` from a YAML platform would have no effect — those entities are
+handed none deliberately. `unique_id` still gives them a registry entry, which is
+what renaming and area assignment actually need. Entities added from the UI do
+get a device, which is the one thing the config flow buys that YAML cannot.
 
 **Climate sends two codes.** For device files with a separate `on` code, the mode
 command follows it after `delay`. If the second send fails the unit may be on
@@ -354,7 +419,7 @@ scripts/lint.sh          # check
 scripts/lint.sh --fix    # apply what ruff can fix safely
 ```
 
-The suite has 1349 tests. Beyond per-platform behaviour it covers:
+Beyond per-platform behaviour the suite covers:
 
 - state restored after a restart, including values the device file can no longer
   express;
@@ -374,6 +439,14 @@ The suite has 1349 tests. Beyond per-platform behaviour it covers:
 - using a shipped device file as a starting point, checked against real files —
   a code the panel reports as missing must really be absent, or someone would be
   asked to record something they already had;
+- the config flow and the options flow: that a bad device code is refused in
+  the form rather than at setup, that a UI-created entity is grouped into a
+  device while a YAML one is still not, that a YAML platform and a config entry
+  coexist unchanged, and that changing the remote takes effect without a
+  restart;
+- that the panel's Create button really produces a working entity, and that
+  pressing it for a device already set up reloads that entity instead of
+  failing;
 - that the domain, the package directory, the manifest, the panel's custom
   element and the websocket command names all still agree, which is what a
   careless rename breaks.

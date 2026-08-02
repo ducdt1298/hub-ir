@@ -66,8 +66,9 @@ async def test_a_unique_id_registers_the_entity(
 
     That is what unlocks renaming, area assignment, hiding and disabling. There
     is no device: Home Assistant only creates one for entities that belong to a
-    config entry, and these platforms are configured in YAML — see
-    test_yaml_platforms_cannot_have_devices.
+    config entry, and this one is configured in YAML — see
+    test_yaml_entities_are_not_grouped_into_a_device. An entity added from the
+    UI does get a device.
     """
     write_device_file(platform, 9600, data)
     await setup_platform(
@@ -91,19 +92,21 @@ async def test_a_unique_id_registers_the_entity(
     assert er.async_get(hass).async_get(entity_id).name == "Renamed"
 
 
-async def test_yaml_platforms_cannot_have_devices(
+async def test_yaml_entities_are_not_grouped_into_a_device(
     hass: HomeAssistant, write_device_file, sent_commands, setup_platform
 ) -> None:
-    """Pin the reason these entities are not grouped into a device.
+    """A YAML entity gets no device, and that is not an oversight.
 
     Home Assistant registers a device only for entities that belong to a config
     entry: entity_platform guards the whole block with `if self.config_entry`,
     and device_registry.async_get_or_create requires a config_entry_id. A YAML
-    platform has neither, so returning device_info would be dead code.
+    platform has neither, so device_info here would be dead code — the entity
+    is handed None deliberately.
 
-    Grouping these into devices therefore needs a config flow, which would change
-    how every user configures the integration. If that ever lands, this test
-    should start failing.
+    Entities added from the UI do get one; that half is
+    tests/test_config_flow.py::test_a_config_entry_entity_gets_a_device. This
+    test is now the pin that adding the config flow did not accidentally start
+    building devices for the YAML path too.
     """
     write_device_file("climate", 9603, CLIMATE_DEVICE_DATA)
     await setup_platform(

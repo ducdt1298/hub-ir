@@ -40,6 +40,8 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.storage import Store
 from homeassistant.setup import async_setup_component
 
+from .conftest import CLIMATE_DEVICE_DATA
+
 BROADLINK_UNIQUE_ID = "34ea34b43b5a"
 REMOTE_ENTITY_ID = "remote.broadlink"
 
@@ -804,18 +806,123 @@ async def test_plan_is_served_over_the_websocket(
     assert result["cells"][1]["label"] == "cool · low · 16°C"
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "hub_ir/info"},
+        {
+            "type": "hub_ir/create_entity",
+            "platform": "climate",
+            "device_code": CUSTOM_CODE_START,
+            "controller_data": REMOTE_ENTITY_ID,
+            "name": "Sneaky",
+        },
+    ],
+)
 async def test_the_panel_commands_are_admin_only(
-    hass: HomeAssistant, panel, hass_ws_client, hass_admin_user
+    hass: HomeAssistant, panel, hass_ws_client, hass_admin_user, message
 ) -> None:
-    """Saving writes into the configuration directory."""
+    """Saving writes into the configuration directory, and creating adds entities."""
     hass_admin_user.groups = []
 
     client = await hass_ws_client(hass)
-    await client.send_json_auto_id({"type": "hub_ir/info"})
+    await client.send_json_auto_id(message)
     answer = await client.receive_json()
 
     assert not answer["success"]
     assert answer["error"]["code"] == "unauthorized"
+
+
+# ---------------------------------------------------------------------------
+# Creating the entity from the panel
+# ---------------------------------------------------------------------------
+
+
+def _create_message(**overrides: Any) -> dict[str, Any]:
+    """Return the message the panel's Create button sends."""
+    return {
+        "type": "hub_ir/create_entity",
+        "platform": "climate",
+        "device_code": CUSTOM_CODE_START,
+        "controller_data": REMOTE_ENTITY_ID,
+        "name": "Bedroom AC",
+        **overrides,
+    }
+
+
+async def test_creating_an_entity_from_the_panel_needs_no_restart(
+    hass: HomeAssistant, panel, hass_ws_client, write_device_file
+) -> None:
+    """The last leave-the-browser step this panel exists to remove."""
+    write_device_file("climate", CUSTOM_CODE_START, CLIMATE_DEVICE_DATA)
+
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(_create_message())
+    answer = await client.receive_json()
+    await hass.async_block_till_done()
+
+    assert answer["success"], answer
+    assert answer["result"]["entity_id"] == "climate.bedroom_ac"
+    assert answer["result"]["existing"] is False
+    assert hass.states.get("climate.bedroom_ac") is not None
+    assert len(hass.config_entries.async_entries("hub_ir")) == 1
+
+
+async def test_creating_the_same_device_twice_reloads_it_instead_of_failing(
+    hass: HomeAssistant, panel, hass_ws_client, write_device_file
+) -> None:
+    """Saving more codes into a device already added must not be an error.
+
+    Without this the live entity would keep the device file it parsed at setup,
+    and the codes just learned would do nothing until a restart.
+    """
+    write_device_file("climate", CUSTOM_CODE_START, CLIMATE_DEVICE_DATA)
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(_create_message())
+    assert (await client.receive_json())["success"]
+    await hass.async_block_till_done()
+
+    await client.send_json_auto_id(_create_message())
+    answer = await client.receive_json()
+    await hass.async_block_till_done()
+
+    assert answer["success"], answer
+    assert answer["result"]["existing"] is True
+    assert answer["result"]["entity_id"] == "climate.bedroom_ac"
+    assert len(hass.config_entries.async_entries("hub_ir")) == 1
+
+
+async def test_creating_an_entity_refuses_a_controller_that_is_not_a_remote(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """A wrong domain there is silent at runtime, so it is caught at the door."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        _create_message(controller_data="light.not_a_remote")
+    )
+    answer = await client.receive_json()
+
+    assert not answer["success"]
+    assert answer["error"]["code"] == "invalid_format"
+    assert not hass.config_entries.async_entries("hub_ir")
+
+
+async def test_creating_an_entity_from_a_device_file_that_is_gone_says_so(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """A failed create must leave no half-made entry behind to puzzle over."""
+    client = await hass_ws_client(hass)
+    with patch(
+        "custom_components.hub_ir.Helper.downloader",
+        side_effect=HomeAssistantError("Got HTTP 404"),
+    ):
+        await client.send_json_auto_id(_create_message())
+        answer = await client.receive_json()
+
+    assert not answer["success"]
+    assert answer["error"]["code"] == "create_failed"
+    assert not hass.config_entries.async_entries("hub_ir")
 
 
 # ---------------------------------------------------------------------------
@@ -876,6 +983,15 @@ def test_the_pieces_of_the_integration_agree_on_its_name() -> None:
     )
     assert manifest["name"] == hacs["name"]
     assert manifest["documentation"].endswith("/hub-ir")
+
+    # Home Assistant refuses to load an integration that promises a config flow
+    # and does not ship one, and an untranslated flow shows raw keys as labels.
+    assert manifest["config_flow"] is True
+    assert (package / "config_flow.py").is_file()
+    assert (package / "translations" / "en.json").is_file()
+    assert json.loads((package / "strings.json").read_text(encoding="utf-8")) == (
+        json.loads((package / "translations" / "en.json").read_text(encoding="utf-8"))
+    )
 
 
 def test_the_panel_calls_only_commands_the_server_defines() -> None:

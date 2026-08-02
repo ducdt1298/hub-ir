@@ -972,9 +972,7 @@ def test_the_pieces_of_the_integration_agree_on_its_name() -> None:
     package = Path(__file__).resolve().parent.parent / "custom_components" / "hub_ir"
     manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
     init = (package / "__init__.py").read_text(encoding="utf-8")
-    hacs = json.loads(
-        (package.parent.parent / "hacs.json").read_text(encoding="utf-8")
-    )
+    hacs = json.loads((package.parent.parent / "hacs.json").read_text(encoding="utf-8"))
 
     assert manifest["domain"] == package.name
     assert re.search(r'^DOMAIN = "([^"]+)"', init, re.M).group(1) == manifest["domain"]

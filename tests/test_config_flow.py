@@ -36,7 +36,7 @@ from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
 )
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -613,20 +613,30 @@ async def test_the_options_flow_refuses_a_remote_that_does_not_exist(
 # --------------------------------------------------------------------------
 
 
-async def test_unloading_an_entry_removes_its_entity(
+async def test_unloading_an_entry_makes_its_entity_unavailable(
     hass: HomeAssistant, add_entry
 ) -> None:
-    """And setting it up again brings the entity back."""
+    """And setting it up again brings the entity back.
+
+    An entity with a unique_id has a registry entry, so unloading its platform
+    does not remove the state: Home Assistant leaves an 'unavailable'
+    placeholder carrying restored: True. Asserting the state disappears passes
+    over the half of this test that matters.
+    """
     entry = await add_entry("climate", 9700, CLIMATE_DEVICE_DATA, title="Toggle")
     assert hass.states.get("climate.toggle") is not None
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get("climate.toggle") is None
+    state = hass.states.get("climate.toggle")
+    assert state.state == STATE_UNAVAILABLE
+    assert state.attributes.get("restored") is True
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get("climate.toggle") is not None
+    state = hass.states.get("climate.toggle")
+    assert state.state != STATE_UNAVAILABLE
+    assert "restored" not in state.attributes
 
 
 async def test_removing_an_entry_removes_its_device(
@@ -717,9 +727,13 @@ async def test_an_entry_loads_even_when_its_remote_is_not_up_yet(
 async def test_a_yaml_entity_and_an_entry_entity_live_side_by_side(
     hass: HomeAssistant, add_entry, write_device_file, setup_platform
 ) -> None:
-    """Adding the config flow must not change what YAML users already have."""
-    await add_entry("climate", 9700, CLIMATE_DEVICE_DATA, title="From UI")
+    """Adding the config flow must not change what YAML users already have.
 
+    The YAML platform is set up first on purpose. Adding the entry forwards to
+    the climate platform, which puts 'climate' into hass.config.components, and
+    async_setup_component then returns True without reading the config it was
+    handed — so the YAML entity would never be created at all.
+    """
     write_device_file("climate", 9705, CLIMATE_DEVICE_DATA)
     await setup_platform(
         CLIMATE_DOMAIN,
@@ -730,6 +744,11 @@ async def test_a_yaml_entity_and_an_entry_entity_live_side_by_side(
             "controller_data": REMOTE,
         },
     )
+    # Fails loudly here rather than at an unrelated AttributeError below if
+    # async_setup_component ever short-circuits again.
+    assert hass.states.get("climate.from_yaml") is not None
+
+    await add_entry("climate", 9700, CLIMATE_DEVICE_DATA, title="From UI")
 
     registry = er.async_get(hass)
     assert registry.async_get("climate.from_yaml").device_id is None

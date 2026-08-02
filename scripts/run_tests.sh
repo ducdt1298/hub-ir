@@ -12,7 +12,7 @@ set -eu
 HA_VERSION="${HA_VERSION:-2026.7.4}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.14}"
 IMAGE_VARIANT="${IMAGE_VARIANT--slim}"
-IMAGE="broadlink_ir-tests:${HA_VERSION}-py${PYTHON_VERSION}"
+IMAGE="hub_ir-tests:${HA_VERSION}-py${PYTHON_VERSION}"
 
 cd "$(dirname "$0")/.."
 # Git Bash rewrites container-side paths into Windows paths; stop it, and hand

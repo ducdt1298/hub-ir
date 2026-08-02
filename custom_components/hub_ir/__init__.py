@@ -1,4 +1,4 @@
-"""Broadlink IR — Broadlink-only fork.
+"""HubIR — Broadlink-only fork.
 
 Controls climate, fan, light and media_player devices over IR/RF using a
 Broadlink universal remote and a JSON database of device codes.
@@ -32,8 +32,8 @@ from .device_file import has_any_code, is_recorded  # noqa: F401
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "broadlink_ir"
-VERSION = "2.0.0"
+DOMAIN = "hub_ir"
+VERSION = "3.0.0"
 
 COMPONENT_ABS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -43,7 +43,7 @@ _SINGLE_BYTE_PULSE_LIMIT = 256
 
 CODES_BASE_URL = (
     "https://raw.githubusercontent.com/"
-    "ducdt1298/broadlink-ir-hass/main/"
+    "ducdt1298/hub-ir/main/"
     "codes/{platform}/{device_code}.json"
 )
 
@@ -62,7 +62,7 @@ _OPTIONS_SCHEMA = vol.Schema(
 )
 
 CONFIG_SCHEMA = vol.Schema(
-    # A bare `broadlink_ir:` line is how the docs tell people to enable this, and
+    # A bare `hub_ir:` line is how the docs tell people to enable this, and
     # YAML gives that key the value None. Accept it: validating None against a
     # dict schema fails with "expected a dictionary".
     {DOMAIN: vol.Any(_OPTIONS_SCHEMA, None)},
@@ -71,12 +71,12 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Broadlink IR component."""
+    """Set up the HubIR component."""
     conf = config.get(DOMAIN) or {}
 
     if obsolete := [option for option in _OBSOLETE_OPTIONS if option in conf]:
         _LOGGER.warning(
-            "The Broadlink IR option(s) %s no longer do anything and can be removed "
+            "The HubIR option(s) %s no longer do anything and can be removed "
             "from configuration.yaml. The built-in self-updater was dropped; "
             "update the integration through HACS instead",
             ", ".join(obsolete),
@@ -120,7 +120,7 @@ def warn_if_no_unique_id(platform: str, config: ConfigType) -> None:
         return
 
     _LOGGER.warning(
-        "The Broadlink IR %s named '%s' has no unique_id, so Home Assistant "
+        "The HubIR %s named '%s' has no unique_id, so Home Assistant "
         "cannot register it: it cannot be renamed, assigned to an area, or "
         "customised from the UI. Add a unique_id to the platform configuration "
         "to enable those",
@@ -165,7 +165,7 @@ def device_file_path(platform: str, device_code: int) -> str:
 
 
 class Helper:
-    """Static helpers shared by the Broadlink IR platforms."""
+    """Static helpers shared by the HubIR platforms."""
 
     @staticmethod
     async def load_device_data(
@@ -173,7 +173,7 @@ class Helper:
     ) -> dict[str, Any]:
         """Return the JSON device data for a device code.
 
-        Looks for the file below ``custom_components/broadlink_ir/codes/<platform>``
+        Looks for the file below ``custom_components/hub_ir/codes/<platform>``
         and downloads it from the repository if it isn't there yet. Raises
         HomeAssistantError with an actionable message on any failure.
         """

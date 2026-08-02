@@ -1,5 +1,5 @@
 /**
- * Broadlink IR — learn a device's codes without leaving the browser.
+ * HubIR — learn a device's codes without leaving the browser.
  *
  * Plain DOM on purpose: no build step, no bundler, and nothing fetched from
  * outside, which Home Assistant's content security policy would block anyway.
@@ -141,6 +141,7 @@ class BroadlinkIrPanel extends HTMLElement {
       nextCode: {},
       deviceCode: null,
       templateCode: "",
+      customCodes: [],
       spec: structuredClone(DEFAULT_SPEC.climate),
       cells: [],
       codes: {},
@@ -170,7 +171,7 @@ class BroadlinkIrPanel extends HTMLElement {
 
   async _load() {
     try {
-      const info = await this._call({ type: "broadlink_ir/info" });
+      const info = await this._call({ type: "hub_ir/info" });
       const learnable = info.remotes.filter((remote) => remote.can_learn);
       this._state.remotes = info.remotes;
       this._state.nextCode = info.next_code;
@@ -179,7 +180,21 @@ class BroadlinkIrPanel extends HTMLElement {
     } catch (err) {
       this._state.status = { kind: "error", text: describe(err) };
     }
+    await this._refreshCustomCodes();
     this._render();
+  }
+
+  /** List the recordings already made, so they are one click away to reopen. */
+  async _refreshCustomCodes() {
+    try {
+      const { custom } = await this._call({
+        type: "hub_ir/list",
+        platform: this._state.platform,
+      });
+      this._state.customCodes = custom;
+    } catch {
+      this._state.customCodes = [];
+    }
   }
 
   // -- state helpers -------------------------------------------------------
@@ -210,7 +225,7 @@ class BroadlinkIrPanel extends HTMLElement {
   async _buildPlan() {
     try {
       const { cells } = await this._call({
-        type: "broadlink_ir/plan",
+        type: "hub_ir/plan",
         platform: this._state.platform,
         spec: this._specForServer(),
       });
@@ -240,7 +255,7 @@ class BroadlinkIrPanel extends HTMLElement {
 
     try {
       const result = await this._call({
-        type: "broadlink_ir/get",
+        type: "hub_ir/get",
         platform: this._state.platform,
         device_code: code,
       });
@@ -300,7 +315,7 @@ class BroadlinkIrPanel extends HTMLElement {
 
       try {
         const { code } = await this._call({
-          type: "broadlink_ir/learn",
+          type: "hub_ir/learn",
           remote_entity_id: this._state.remote,
         });
         this._state.codes[target.key] = code;
@@ -358,7 +373,7 @@ class BroadlinkIrPanel extends HTMLElement {
     }
     try {
       await this._call({
-        type: "broadlink_ir/send",
+        type: "hub_ir/send",
         remote_entity_id: this._state.remote,
         code,
       });
@@ -373,7 +388,7 @@ class BroadlinkIrPanel extends HTMLElement {
   async _save() {
     try {
       const result = await this._call({
-        type: "broadlink_ir/save",
+        type: "hub_ir/save",
         platform: this._state.platform,
         device_code: this._state.deviceCode,
         spec: this._specForServer(),
@@ -390,7 +405,7 @@ class BroadlinkIrPanel extends HTMLElement {
   _render() {
     const root = this.shadowRoot;
     root.innerHTML = `<style>${STYLES}</style>
-      <header><h1>Broadlink IR</h1></header>
+      <header><h1>HubIR</h1></header>
       <div class="wrap">${this._body()}</div>`;
     this._bind();
   }
@@ -474,6 +489,19 @@ class BroadlinkIrPanel extends HTMLElement {
                  value="${esc(s.templateCode)}" style="max-width:10rem" />
           <button id="load_template">Load that device file</button>
         </div>
+        ${
+          s.customCodes.length
+            ? `<div class="row" style="margin-top:.5rem">
+                 <span class="muted">Your recordings:</span>
+                 ${s.customCodes
+                   .map(
+                     (code) =>
+                       `<span class="chip" data-reopen="${code}" role="button">${code}</span>`
+                   )
+                   .join("")}
+               </div>`
+            : ""
+        }
       </div>
 
       ${this._specView()}
@@ -678,7 +706,7 @@ class BroadlinkIrPanel extends HTMLElement {
     const s = this._state;
     const platform = s.platform;
     const yaml = `${platform}:
-  - platform: broadlink_ir
+  - platform: hub_ir
     name: My ${PLATFORM_LABELS[platform]}
     unique_id: my_${platform}
     device_code: ${s.saved.device_code}
@@ -716,19 +744,23 @@ class BroadlinkIrPanel extends HTMLElement {
       if (node) node.addEventListener(event, handler);
     };
 
-    on("platform", "change", (event) => {
+    on("platform", "change", async (event) => {
       const platform = event.target.value;
-      this._set({
+      Object.assign(this._state, {
         platform,
         spec: structuredClone(DEFAULT_SPEC[platform]),
         deviceCode: this._state.nextCode[platform],
         templateCode: "",
+        customCodes: [],
         cells: [],
         codes: {},
         skipped: {},
         index: 0,
         status: null,
       });
+      this._render();
+      await this._refreshCustomCodes();
+      this._render();
     });
     on("remote", "change", (event) => this._set({ remote: event.target.value }));
     on("device_code", "change", (event) =>
@@ -763,8 +795,15 @@ class BroadlinkIrPanel extends HTMLElement {
       });
     }
 
-    for (const node of root.querySelectorAll(".chip")) {
+    for (const node of root.querySelectorAll(".chip[data-key]")) {
       node.addEventListener("click", () => this._toggleChip(node.dataset.key));
+    }
+
+    for (const node of root.querySelectorAll(".chip[data-reopen]")) {
+      node.addEventListener("click", () => {
+        this._state.templateCode = node.dataset.reopen;
+        this._loadTemplate();
+      });
     }
 
     for (const node of root.querySelectorAll(".cell[data-index]")) {
@@ -787,17 +826,21 @@ class BroadlinkIrPanel extends HTMLElement {
     on("test", "click", () => this._test());
     on("save", "click", () => this._save());
     on("back", "click", () => this._set({ step: "setup" }));
-    on("restart", "click", () =>
-      this._set({
+    on("restart", "click", async () => {
+      Object.assign(this._state, {
         step: "setup",
         cells: [],
         codes: {},
         skipped: {},
         index: 0,
         saved: null,
+        templateCode: "",
         deviceCode: (this._state.deviceCode || 0) + 1,
-      })
-    );
+      });
+      // The recording just saved should show up in the list straight away.
+      await this._refreshCustomCodes();
+      this._render();
+    });
   }
 
   _toggleChip(key) {
@@ -857,4 +900,4 @@ function describe(err) {
   return err.message || err.error || String(err);
 }
 
-customElements.define("broadlink-ir-panel", BroadlinkIrPanel);
+customElements.define("hub-ir-panel", BroadlinkIrPanel);

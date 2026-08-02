@@ -9,15 +9,15 @@ The panel does all of it in one place.
 
 ## Turning it on
 
-**Broadlink IR** appears in the sidebar for administrators, because the panel
+**HubIR** appears in the sidebar for administrators, because the panel
 writes into your configuration directory.
 
 The panel comes up whenever the integration loads, which happens as soon as any
-`platform: broadlink_ir` is configured. On a fresh install there is nothing to
+`platform: hub_ir` is configured. On a fresh install there is nothing to
 load it yet, so add this to `configuration.yaml` and restart:
 
 ```yaml
-broadlink_ir:
+hub_ir:
 ```
 
 Once you have a platform configured that line is optional, but leaving it in
@@ -78,7 +78,7 @@ entity the integration would choke on. The panel then shows the
 
 ```yaml
 climate:
-  - platform: broadlink_ir
+  - platform: hub_ir
     name: My air conditioner
     unique_id: my_climate
     device_code: 90000
@@ -101,7 +101,7 @@ button once.
 
 ## Where the files go
 
-`custom_components/broadlink_ir/codes/<platform>/<device_code>.json` — the same
+`custom_components/hub_ir/codes/<platform>/<device_code>.json` — the same
 directory the integration downloads shipped device files into, and one HACS
 preserves across updates through `persistent_directory`.
 
@@ -119,7 +119,7 @@ into a file of your own.
 | *The remote entity … is turned off* | Turn the remote entity on; Broadlink cannot learn while it is off. |
 | *… is unavailable* | The Broadlink is unreachable. Check power and network. |
 | *… needs a Broadlink remote* | The selected remote belongs to another integration, whose codes this cannot read. |
-| No panel in the sidebar | `broadlink_ir:` is missing from `configuration.yaml`, or you are not an administrator. |
+| No panel in the sidebar | `hub_ir:` is missing from `configuration.yaml`, or you are not an administrator. |
 
 ## What it does not do
 

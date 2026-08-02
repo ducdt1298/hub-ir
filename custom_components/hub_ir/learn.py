@@ -36,7 +36,7 @@ CODE_STORAGE_VERSION = 1
 
 # The subdevice every scratch code is filed under, so the entries this module
 # creates are easy to recognise and clean up.
-SCRATCH_DEVICE = "broadlink_ir_learning"
+SCRATCH_DEVICE = "hub_ir_learning"
 
 
 def broadlink_unique_id(hass: HomeAssistant, remote_entity_id: str) -> str:

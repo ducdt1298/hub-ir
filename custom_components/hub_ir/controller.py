@@ -1,4 +1,4 @@
-"""Broadlink controller used by every Broadlink IR platform."""
+"""Broadlink controller used by every HubIR platform."""
 
 from __future__ import annotations
 

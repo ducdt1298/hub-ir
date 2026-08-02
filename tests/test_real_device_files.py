@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from custom_components.broadlink_ir.climate import _select, _select_temperature
-from custom_components.broadlink_ir.controller import _decode_like_broadlink
+from custom_components.hub_ir.climate import _select, _select_temperature
+from custom_components.hub_ir.controller import _decode_like_broadlink
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
 from homeassistant.components.climate.const import HVAC_MODES
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_ON
@@ -186,9 +186,9 @@ async def test_a_real_device_file_drives_a_real_entity(
     hass: HomeAssistant, monkeypatch, sent_commands, setup_platform
 ) -> None:
     """End to end with a file from codes/, not a test fixture."""
-    from custom_components import broadlink_ir
+    from custom_components import hub_ir
 
-    monkeypatch.setattr(broadlink_ir, "COMPONENT_ABS_DIR", str(REPO_ROOT))
+    monkeypatch.setattr(hub_ir, "COMPONENT_ABS_DIR", str(REPO_ROOT))
 
     await setup_platform(
         CLIMATE_DOMAIN,
@@ -275,7 +275,7 @@ def test_validator_baseline_matches_the_test_baseline() -> None:
     Two hand-maintained lists of the same facts drift apart; this keeps them
     honest so a fixed code cannot stay excused in one place only.
     """
-    from custom_components.broadlink_ir.device_file import KNOWN_CORRUPT
+    from custom_components.hub_ir.device_file import KNOWN_CORRUPT
 
     assert KNOWN_CORRUPT == CORRUPT_CODES
 
@@ -284,7 +284,7 @@ def test_the_validator_script_runs_without_home_assistant() -> None:
     """scripts/validate_codes.py must not drag Home Assistant in.
 
     It shares its rules with the integration, and the tempting way to do that —
-    importing custom_components.broadlink_ir.device_file — would execute the
+    importing custom_components.hub_ir.device_file — would execute the
     package's __init__.py and make the script unusable anywhere Home Assistant
     is not installed. Loading it in a subprocess that cannot see homeassistant
     proves the import stayed standalone.

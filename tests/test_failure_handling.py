@@ -101,7 +101,7 @@ async def breakable_remote(hass: HomeAssistant):
 async def _setup(hass: HomeAssistant, domain: str, config: dict[str, Any]) -> None:
     """Set a platform up from YAML."""
     assert await async_setup_component(
-        hass, domain, {domain: {"platform": "broadlink_ir", **config}}
+        hass, domain, {domain: {"platform": "hub_ir", **config}}
     )
     await hass.async_block_till_done()
 
@@ -192,7 +192,7 @@ async def test_controller_data_must_name_a_remote(
         CLIMATE_DOMAIN,
         {
             CLIMATE_DOMAIN: {
-                "platform": "broadlink_ir",
+                "platform": "hub_ir",
                 "name": "Bad Controller",
                 "unique_id": "bad_controller",
                 "device_code": 9502,

@@ -9,7 +9,7 @@ climate.py, so only gaps the integration cannot bridge are reported.
 Errors set a non-zero exit code; warnings describe things the integration
 tolerates but a maintainer may want to know about.
 
-The rules themselves live in custom_components/broadlink_ir/device_file.py, so
+The rules themselves live in custom_components/hub_ir/device_file.py, so
 this script, the integration and the learning panel cannot drift apart. That
 module is imported as a standalone file rather than as part of the package,
 because importing the package would execute its __init__.py and require Home
@@ -26,7 +26,7 @@ import sys
 
 sys.path.insert(
     0,
-    str(Path(__file__).resolve().parent.parent / "custom_components" / "broadlink_ir"),
+    str(Path(__file__).resolve().parent.parent / "custom_components" / "hub_ir"),
 )
 
 from device_file import PLATFORM_KEYS, Report, validate

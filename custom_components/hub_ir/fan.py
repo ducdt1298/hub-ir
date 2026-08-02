@@ -1,4 +1,4 @@
-"""Broadlink IR fan platform."""
+"""HubIR fan platform."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = "Broadlink IR Fan"
+DEFAULT_NAME = "HubIR Fan"
 DEFAULT_DELAY = 0.5
 
 CONF_UNIQUE_ID = "unique_id"
@@ -68,10 +68,10 @@ async def async_setup_platform(
 
     warn_if_no_unique_id("fan", config)
 
-    async_add_entities([BroadlinkIRFan(hass, config, device_data)])
+    async_add_entities([HubIRFan(hass, config, device_data)])
 
 
-class BroadlinkIRFan(FanEntity, RestoreEntity):
+class HubIRFan(FanEntity, RestoreEntity):
     """A fan entity driven by IR/RF codes from a device file."""
 
     _attr_should_poll = False

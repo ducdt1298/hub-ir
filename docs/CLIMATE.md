@@ -1,9 +1,9 @@
 <p align="center">
-  <a href="#"><img src="assets/smartir_climate.png" width="350" alt="Broadlink IR Climate"></a>
+  <a href="#"><img src="assets/smartir_climate.png" width="350" alt="HubIR Climate"></a>
 </p>
 
 For this platform to work, we need a .json file containing all the necessary IR commands.
-Find your device's brand code [here](CLIMATE.md#available-codes-for-climate-devices) and add the number in the `device_code` field. If your device is not working, you will need to learn your own codes and place the Json file in `broadlink_ir/codes/climate` subfolders. ~~[Keite Trần](https://github.com/keitetran/BroadlinkIRTools) developed [an amazing web-based app](https://keitetran.github.io/BroadlinkIRTools/) for this job.~~
+Find your device's brand code [here](CLIMATE.md#available-codes-for-climate-devices) and add the number in the `device_code` field. If your device is not working, you will need to learn your own codes and place the Json file in `hub_ir/codes/climate` subfolders. ~~[Keite Trần](https://github.com/keitetran/HubIRTools) developed [an amazing web-based app](https://keitetran.github.io/HubIRTools/) for this job.~~
 _Please note that the device_code field only accepts positive numbers. The .json extension is not required._
 
 ## Configuration variables:
@@ -23,10 +23,10 @@ _Please note that the device_code field only accepts positive numbers. The .json
 Add a Broadlink RM device named "Bedroom" via config flow (read the [docs](https://www.home-assistant.io/integrations/broadlink/)).
 
 ```yaml
-broadlink_ir:
+hub_ir:
 
 climate:
-  - platform: broadlink_ir
+  - platform: hub_ir
     name: Office AC
     unique_id: office_ac
     device_code: 1000

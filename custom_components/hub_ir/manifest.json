@@ -1,0 +1,13 @@
+{
+  "domain": "hub_ir",
+  "name": "HubIR",
+  "documentation": "https://github.com/ducdt1298/hub-ir",
+  "issue_tracker": "https://github.com/ducdt1298/hub-ir/issues",
+  "dependencies": ["remote", "http", "websocket_api"],
+  "after_dependencies": ["panel_custom"],
+  "codeowners": ["@ducdt1298"],
+  "requirements": [],
+  "iot_class": "assumed_state",
+  "homeassistant": "2025.1.0",
+  "version": "3.0.0"
+}

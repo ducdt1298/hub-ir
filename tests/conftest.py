@@ -1,4 +1,4 @@
-"""Shared fixtures for the Broadlink IR tests."""
+"""Shared fixtures for the HubIR tests."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 # pytest-homeassistant-custom-component ships its own `custom_components`
 # package (as testing_config/custom_components) and it is a regular package, so
 # depending on import order it can shadow this repository's. Add this repo's
-# directory to whichever package won, so `custom_components.broadlink_ir`
+# directory to whichever package won, so `custom_components.hub_ir`
 # resolves the same way whether the whole suite or a single file runs.
 _REPO_CUSTOM_COMPONENTS = str(
     Path(__file__).resolve().parent.parent / "custom_components"
@@ -105,16 +105,16 @@ MEDIA_PLAYER_DEVICE_DATA: dict[str, Any] = {
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
-    """Load custom_components/broadlink_ir in every test."""
+    """Load custom_components/hub_ir in every test."""
     return
 
 
 @pytest.fixture
 def codes_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the component's device-file directory at a temporary directory."""
-    from custom_components import broadlink_ir
+    from custom_components import hub_ir
 
-    monkeypatch.setattr(broadlink_ir, "COMPONENT_ABS_DIR", str(tmp_path))
+    monkeypatch.setattr(hub_ir, "COMPONENT_ABS_DIR", str(tmp_path))
     return tmp_path
 
 
@@ -135,7 +135,7 @@ def write_device_file(codes_dir: Path):
 async def sent_commands(hass: HomeAssistant) -> list[ServiceCall]:
     """Capture every remote.send_command call.
 
-    The remote component is set up first: broadlink_ir depends on it, so platform
+    The remote component is set up first: hub_ir depends on it, so platform
     setup would otherwise register the real service over the mock. The remote
     entities are then given a state, because the controller refuses to send to a
     remote that does not exist — that is how a typo in controller_data is caught.
@@ -151,11 +151,11 @@ async def sent_commands(hass: HomeAssistant) -> list[ServiceCall]:
 
 @pytest.fixture
 async def setup_platform(hass: HomeAssistant):
-    """Return a helper that sets a Broadlink IR platform up from YAML."""
+    """Return a helper that sets a HubIR platform up from YAML."""
 
     async def _setup(domain: str, config: dict[str, Any]) -> None:
         assert await async_setup_component(
-            hass, domain, {domain: {"platform": "broadlink_ir", **config}}
+            hass, domain, {domain: {"platform": "hub_ir", **config}}
         )
         await hass.async_block_till_done()
 

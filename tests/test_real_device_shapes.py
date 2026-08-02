@@ -53,9 +53,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 @pytest.fixture
 def real_codes(monkeypatch: pytest.MonkeyPatch):
     """Serve device files straight out of the repository's codes/ directory."""
-    from custom_components import broadlink_ir
+    from custom_components import hub_ir
 
-    monkeypatch.setattr(broadlink_ir, "COMPONENT_ABS_DIR", str(REPO_ROOT))
+    monkeypatch.setattr(hub_ir, "COMPONENT_ABS_DIR", str(REPO_ROOT))
 
 
 def device_file(platform: str, code: int) -> dict:
@@ -304,7 +304,7 @@ async def test_the_empty_light_file_is_refused(
         LIGHT_DOMAIN,
         {
             LIGHT_DOMAIN: {
-                "platform": "broadlink_ir",
+                "platform": "hub_ir",
                 "name": "Dead Light",
                 "unique_id": "dead_light",
                 "device_code": 1040,

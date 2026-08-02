@@ -11,14 +11,15 @@ from __future__ import annotations
 from base64 import b64encode
 import json
 from pathlib import Path
+import re
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.broadlink_ir import frontend as frontend_module
-from custom_components.broadlink_ir.device_file import (
+from custom_components.hub_ir import frontend as frontend_module
+from custom_components.hub_ir.device_file import (
     CUSTOM_CODE_START,
     build_device_file,
     capture_plan,
@@ -28,7 +29,7 @@ from custom_components.broadlink_ir.device_file import (
     temperature_steps,
     validate,
 )
-from custom_components.broadlink_ir.learn import (
+from custom_components.hub_ir.learn import (
     SCRATCH_DEVICE,
     async_learn_ir_code,
     broadlink_unique_id,
@@ -568,7 +569,7 @@ async def test_get_hands_the_panel_a_spec_and_the_codes_it_already_has(
 
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
-        {"type": "broadlink_ir/get", "platform": "climate", "device_code": 1234}
+        {"type": "hub_ir/get", "platform": "climate", "device_code": 1234}
     )
     result = (await client.receive_json())["result"]
 
@@ -587,7 +588,7 @@ async def test_listing_separates_your_own_files_from_the_shipped_ones(
         path.write_text("{}", encoding="utf-8")
 
     client = await hass_ws_client(hass)
-    await client.send_json_auto_id({"type": "broadlink_ir/list", "platform": "climate"})
+    await client.send_json_auto_id({"type": "hub_ir/list", "platform": "climate"})
     result = (await client.receive_json())["result"]
 
     assert result["codes"] == [1000, CUSTOM_CODE_START]
@@ -603,7 +604,7 @@ async def test_listing_separates_your_own_files_from_the_shipped_ones(
 async def panel(hass: HomeAssistant, codes_dir, sent_commands):
     """Set the component up with its websocket commands registered."""
     with patch.object(frontend_module, "async_register_panel"):
-        assert await async_setup_component(hass, "broadlink_ir", {"broadlink_ir": {}})
+        assert await async_setup_component(hass, "hub_ir", {"hub_ir": {}})
         await hass.async_block_till_done()
     return codes_dir
 
@@ -618,7 +619,7 @@ async def test_info_reports_which_remotes_can_learn(
     hass.states.async_set("remote.other", "on")
 
     client = await hass_ws_client(hass)
-    await client.send_json_auto_id({"type": "broadlink_ir/info"})
+    await client.send_json_auto_id({"type": "hub_ir/info"})
     result = (await client.receive_json())["result"]
 
     by_id = {remote["entity_id"]: remote for remote in result["remotes"]}
@@ -646,7 +647,7 @@ async def test_saving_writes_a_file_the_integration_can_load(
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
         {
-            "type": "broadlink_ir/save",
+            "type": "hub_ir/save",
             "platform": "climate",
             "device_code": CUSTOM_CODE_START,
             "spec": spec,
@@ -666,7 +667,7 @@ async def test_saving_writes_a_file_the_integration_can_load(
         "climate",
         {
             "climate": {
-                "platform": "broadlink_ir",
+                "platform": "hub_ir",
                 "name": "Learned AC",
                 "unique_id": "learned_ac",
                 "device_code": CUSTOM_CODE_START,
@@ -695,7 +696,7 @@ async def test_saving_refuses_a_file_the_integration_could_not_use(
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
         {
-            "type": "broadlink_ir/save",
+            "type": "hub_ir/save",
             "platform": "climate",
             "device_code": CUSTOM_CODE_START + 1,
             "spec": spec,
@@ -716,7 +717,7 @@ async def test_saving_cannot_overwrite_a_shipped_device_file(
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
         {
-            "type": "broadlink_ir/save",
+            "type": "hub_ir/save",
             "platform": "climate",
             "device_code": 1000,
             "spec": {},
@@ -737,7 +738,7 @@ async def test_learn_over_the_websocket_returns_the_code(
 
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
-        {"type": "broadlink_ir/learn", "remote_entity_id": REMOTE_ENTITY_ID}
+        {"type": "hub_ir/learn", "remote_entity_id": REMOTE_ENTITY_ID}
     )
     answer = await client.receive_json()
 
@@ -753,7 +754,7 @@ async def test_learn_reports_a_timeout_rather_than_succeeding_emptily(
 
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
-        {"type": "broadlink_ir/learn", "remote_entity_id": REMOTE_ENTITY_ID}
+        {"type": "hub_ir/learn", "remote_entity_id": REMOTE_ENTITY_ID}
     )
     answer = await client.receive_json()
 
@@ -768,7 +769,7 @@ async def test_send_transmits_a_captured_code_for_testing(
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
         {
-            "type": "broadlink_ir/send",
+            "type": "hub_ir/send",
             "remote_entity_id": REMOTE_ENTITY_ID,
             "code": GOOD_CODE,
         }
@@ -786,7 +787,7 @@ async def test_plan_is_served_over_the_websocket(
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
         {
-            "type": "broadlink_ir/plan",
+            "type": "hub_ir/plan",
             "platform": "climate",
             "spec": {
                 "minTemperature": 16,
@@ -810,7 +811,7 @@ async def test_the_panel_commands_are_admin_only(
     hass_admin_user.groups = []
 
     client = await hass_ws_client(hass)
-    await client.send_json_auto_id({"type": "broadlink_ir/info"})
+    await client.send_json_auto_id({"type": "hub_ir/info"})
     answer = await client.receive_json()
 
     assert not answer["success"]
@@ -829,15 +830,15 @@ async def test_the_panel_is_registered_with_the_frontend(
     with patch(
         "homeassistant.components.panel_custom.async_register_panel"
     ) as register:
-        assert await async_setup_component(hass, "broadlink_ir", {"broadlink_ir": {}})
+        assert await async_setup_component(hass, "hub_ir", {"hub_ir": {}})
         await hass.async_block_till_done()
 
     assert register.call_count == 1
     kwargs = register.call_args.kwargs
-    assert kwargs["frontend_url_path"] == "broadlink-ir"
-    assert kwargs["webcomponent_name"] == "broadlink-ir-panel"
+    assert kwargs["frontend_url_path"] == "hub-ir"
+    assert kwargs["webcomponent_name"] == "hub-ir-panel"
     assert kwargs["require_admin"] is True
-    assert kwargs["module_url"].endswith("/broadlink-ir-panel.js")
+    assert kwargs["module_url"].endswith("/hub-ir-panel.js")
 
 
 async def test_setup_survives_a_frontend_that_cannot_take_the_panel(
@@ -848,10 +849,58 @@ async def test_setup_survives_a_frontend_that_cannot_take_the_panel(
         "homeassistant.components.panel_custom.async_register_panel",
         side_effect=RuntimeError("no frontend here"),
     ):
-        assert await async_setup_component(hass, "broadlink_ir", {"broadlink_ir": {}})
+        assert await async_setup_component(hass, "hub_ir", {"hub_ir": {}})
         await hass.async_block_till_done()
 
     assert "only the code-learning panel is unavailable" in caplog.text
+
+
+def test_the_pieces_of_the_integration_agree_on_its_name() -> None:
+    """The domain, the package directory and the version must not drift apart.
+
+    A rename touches the directory name, the manifest, a constant, the panel's
+    URL and the websocket command prefix. Getting one of them wrong leaves an
+    integration that half loads, so they are checked against each other here.
+    """
+    package = Path(__file__).resolve().parent.parent / "custom_components" / "hub_ir"
+    manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+    init = (package / "__init__.py").read_text(encoding="utf-8")
+    hacs = json.loads(
+        (package.parent.parent / "hacs.json").read_text(encoding="utf-8")
+    )
+
+    assert manifest["domain"] == package.name
+    assert re.search(r'^DOMAIN = "([^"]+)"', init, re.M).group(1) == manifest["domain"]
+    assert (
+        re.search(r'^VERSION = "([^"]+)"', init, re.M).group(1) == manifest["version"]
+    )
+    assert manifest["name"] == hacs["name"]
+    assert manifest["documentation"].endswith("/hub-ir")
+
+
+def test_the_panel_calls_only_commands_the_server_defines() -> None:
+    """A renamed or mistyped command would fail silently in the browser.
+
+    It also catches the reverse: an endpoint nobody calls. Both have happened
+    here before.
+    """
+    package = Path(__file__).resolve().parent.parent / "custom_components" / "hub_ir"
+    js = (package / "www" / "hub-ir-panel.js").read_text(encoding="utf-8")
+    server = (package / "websocket.py").read_text(encoding="utf-8")
+    frontend = (package / "frontend.py").read_text(encoding="utf-8")
+
+    called = set(re.findall(r'type:\s*"([a-z_]+/[a-z_]+)"', js))
+    defined = set(re.findall(r'vol\.Required\("type"\):\s*"([a-z_]+/[a-z_]+)"', server))
+
+    assert called, "the panel calls nothing at all"
+    assert called <= defined, f"panel calls undefined commands: {called - defined}"
+    assert defined <= called, f"unused websocket endpoints: {defined - called}"
+
+    element = re.search(r'customElements\.define\("([^"]+)"', js).group(1)
+    assert element == re.search(r'WEBCOMPONENT_NAME = "([^"]+)"', frontend).group(1)
+
+    module = re.search(r'_MODULE_FILE = "([^"]+)"', frontend).group(1)
+    assert (package / "www" / module).is_file()
 
 
 def test_the_panel_module_is_shipped_and_self_contained() -> None:
@@ -859,13 +908,13 @@ def test_the_panel_module_is_shipped_and_self_contained() -> None:
     module = (
         Path(__file__).resolve().parent.parent
         / "custom_components"
-        / "broadlink_ir"
+        / "hub_ir"
         / "www"
-        / "broadlink-ir-panel.js"
+        / "hub-ir-panel.js"
     )
     source = module.read_text(encoding="utf-8")
 
-    assert 'customElements.define("broadlink-ir-panel"' in source
+    assert 'customElements.define("hub-ir-panel"' in source
     assert "http://" not in source
     assert "https://" not in source
     assert "import(" not in source

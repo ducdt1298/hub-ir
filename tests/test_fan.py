@@ -1,4 +1,4 @@
-"""Tests for the Broadlink IR fan platform."""
+"""Tests for the HubIR fan platform."""
 
 from __future__ import annotations
 

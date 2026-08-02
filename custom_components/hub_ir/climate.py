@@ -1,4 +1,4 @@
-"""Broadlink IR climate platform."""
+"""HubIR climate platform."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ from .device_file import ANNOTATION_PREFIXES
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = "Broadlink IR Climate"
+DEFAULT_NAME = "HubIR Climate"
 DEFAULT_DELAY = 0.5
 
 CONF_UNIQUE_ID = "unique_id"
@@ -103,10 +103,10 @@ async def async_setup_platform(
 
     warn_if_no_unique_id("climate", config)
 
-    async_add_entities([BroadlinkIRClimate(hass, config, device_data)])
+    async_add_entities([HubIRClimate(hass, config, device_data)])
 
 
-class BroadlinkIRClimate(ClimateEntity, RestoreEntity):
+class HubIRClimate(ClimateEntity, RestoreEntity):
     """A climate entity driven by IR/RF codes from a device file."""
 
     _attr_should_poll = False

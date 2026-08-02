@@ -84,7 +84,7 @@ async def test_a_unique_id_registers_the_entity(
     entity_entry = er.async_get(hass).async_get(entity_id)
     assert entity_entry is not None, "entity was not registered"
     assert entity_entry.unique_id == "reg_thing"
-    assert entity_entry.platform == "broadlink_ir"
+    assert entity_entry.platform == "hub_ir"
 
     # Renaming and area assignment go through the registry, so prove they take.
     er.async_get(hass).async_update_entity(entity_id, name="Renamed")
@@ -123,7 +123,7 @@ async def test_yaml_platforms_cannot_have_devices(
     assert not [
         device
         for device in dr.async_get(hass).devices.values()
-        if any(domain == "broadlink_ir" for domain, _ in device.identifiers)
+        if any(domain == "hub_ir" for domain, _ in device.identifiers)
     ]
 
 

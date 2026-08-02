@@ -1,4 +1,4 @@
-"""Tests for the Broadlink IR climate platform."""
+"""Tests for the HubIR climate platform."""
 
 from __future__ import annotations
 

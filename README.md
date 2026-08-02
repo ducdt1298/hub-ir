@@ -1,4 +1,4 @@
-# Broadlink IR for Home Assistant
+# HubIR for Home Assistant
 
 Control **climate devices**, **media players**, **fans** and **lights** over IR/RF
 with a [Broadlink](https://www.home-assistant.io/integrations/broadlink/) remote
@@ -9,7 +9,11 @@ This is a maintained, Broadlink-only fork of
 release predates the Home Assistant versions people actually run today.
 
 > Upstream asks that forks not carry the SmartIR name, so this integration uses
-> the domain `broadlink_ir`. See [Migrating from SmartIR](#migrating-from-smartir).
+> the domain `hub_ir`. See [Migrating from SmartIR](#migrating-from-smartir).
+
+> **Renamed in 3.0.0.** This was `broadlink_ir`, in a repository called
+> `broadlink-ir-hass`. If you installed that, see
+> [Migrating from broadlink_ir](#migrating-from-broadlink_ir).
 
 ## Why this fork exists
 
@@ -44,12 +48,12 @@ of type *Integration*, install it, and restart Home Assistant.
 
 ### Manual
 
-Copy `custom_components/broadlink_ir` into your configuration directory:
+Copy `custom_components/hub_ir` into your configuration directory:
 
 ```
 <config directory>/
 |-- custom_components/
-|   |-- broadlink_ir/
+|   |-- hub_ir/
 |       |-- __init__.py
 |       |-- climate.py
 |       |-- controller.py
@@ -67,7 +71,7 @@ platform — that is what puts the
 [learning panel](#recording-a-device-of-your-own) in the sidebar:
 
 ```yaml
-broadlink_ir:
+hub_ir:
 ```
 
 ### Where the device files come from
@@ -75,7 +79,7 @@ broadlink_ir:
 The 407 device files are **not** part of the installed integration: at 45 MB they
 would dominate it. Home Assistant downloads each one the first time you use its
 device code and caches it under
-`custom_components/broadlink_ir/codes/<platform>/`. HACS preserves that cache
+`custom_components/hub_ir/codes/<platform>/`. HACS preserves that cache
 across updates.
 
 So the first use of a device code needs Home Assistant to reach
@@ -84,14 +88,14 @@ recording, copy the JSON there yourself — a file that is already present is ne
 downloaded:
 
 ```
-custom_components/broadlink_ir/codes/climate/1000.json
+custom_components/hub_ir/codes/climate/1000.json
 ```
 
 Browse the files in [codes/](codes/) to find one to copy.
 
 ## Recording a device of your own
 
-If your air conditioner is not in the tables below, the **Broadlink IR** panel in
+If your air conditioner is not in the tables below, the **HubIR** panel in
 the sidebar records it — no Developer Tools, no SSH, no hand-written JSON.
 
 It shows one code at a time in the order the buttons sit on your remote, and
@@ -114,7 +118,7 @@ Find your device's code in the tables below, then configure a platform:
 
 ```yaml
 climate:
-  - platform: broadlink_ir
+  - platform: hub_ir
     name: Office AC
     unique_id: office_ac
     device_code: 1000
@@ -133,15 +137,37 @@ Per-platform options and the full code tables:
 - [Learning panel](docs/PANEL.md) — recording a device the tables do not cover
 
 Device files are downloaded from this repository on first use and cached under
-`custom_components/broadlink_ir/codes/<platform>/`. To use your own recording,
+`custom_components/hub_ir/codes/<platform>/`. To use your own recording,
 drop the JSON file there and it will be used instead.
+
+## Migrating from broadlink_ir
+
+Version 3.0.0 renamed the integration to HubIR and moved it to the
+[hub-ir](https://github.com/ducdt1298/hub-ir) repository. The domain changed with
+it, which Home Assistant treats as a different integration entirely.
+
+1. Copy any device files you recorded yourself out of
+   `custom_components/broadlink_ir/codes/` — the ones numbered 90000 and up.
+   Nothing else in that directory is worth keeping; the rest is re-downloaded.
+2. In HACS, remove the old *Broadlink IR* custom repository and add
+   `https://github.com/ducdt1298/hub-ir` instead. For a manual install, delete
+   `custom_components/broadlink_ir` and copy `custom_components/hub_ir` in.
+3. Put your own device files back under `custom_components/hub_ir/codes/`.
+4. In `configuration.yaml`, change every `platform: broadlink_ir` to
+   `platform: hub_ir`, and `broadlink_ir:` to `hub_ir:`.
+5. Restart Home Assistant.
+
+Entities are recreated, because the entity registry keys them by platform. If
+you set `unique_id`, the old entities linger as unavailable — delete them in
+**Settings → Devices & services → Entities**, then rename the new ones to the
+old entity IDs so your automations keep working.
 
 ## Migrating from SmartIR
 
 1. Remove the old `custom_components/smartir` directory (or uninstall it in HACS).
 2. Install this integration.
 3. In `configuration.yaml`, change every `platform: smartir` to
-   `platform: broadlink_ir`, and drop the `smartir:` block if you had one.
+   `platform: hub_ir`, and drop the `smartir:` block if you had one.
 4. Restart Home Assistant.
 
 Because the platform name changes, entities are recreated. If you set
@@ -174,7 +200,7 @@ Two behaviour changes worth knowing about before you migrate:
 
 **Fixed — found by auditing this fork's own code**
 
-- A bare `broadlink_ir:` line — what the docs tell you to add — failed config
+- A bare `hub_ir:` line — what the docs tell you to add — failed config
   validation with *"expected a dictionary ... got None"*. Upstream has the same
   bug.
 - Restoring the target temperature after a restart read it back in the *user's*
@@ -328,7 +354,7 @@ scripts/lint.sh          # check
 scripts/lint.sh --fix    # apply what ruff can fix safely
 ```
 
-The suite has 1347 tests. Beyond per-platform behaviour it covers:
+The suite has 1349 tests. Beyond per-platform behaviour it covers:
 
 - state restored after a restart, including values the device file can no longer
   express;
@@ -347,7 +373,10 @@ The suite has 1347 tests. Beyond per-platform behaviour it covers:
   and that a file the panel writes both validates and loads as a working entity;
 - using a shipped device file as a starting point, checked against real files —
   a code the panel reports as missing must really be absent, or someone would be
-  asked to record something they already had.
+  asked to record something they already had;
+- that the domain, the package directory, the manifest, the panel's custom
+  element and the websocket command names all still agree, which is what a
+  careless rename breaks.
 
 ### Verified versions
 

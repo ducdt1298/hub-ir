@@ -10,7 +10,7 @@ different callers need to agree on what a valid device file is:
 
 Keeping the rules here means they agree by construction instead of by
 discipline. The script imports this file as a standalone top-level module,
-because importing it as part of the ``broadlink_ir`` package would execute
+because importing it as part of the ``hub_ir`` package would execute
 ``__init__.py`` and pull Home Assistant in with it.
 """
 

@@ -1,9 +1,9 @@
 <p align="center">
-  <a href="#"><img src="assets/smartir_fan.png" width="350" alt="Broadlink IR Media Player"></a>
+  <a href="#"><img src="assets/smartir_fan.png" width="350" alt="HubIR Media Player"></a>
 </p>
 
 For this platform to work, we need a .json file containing all the necessary IR or RF commands.
-Find your device's brand code [here](FAN.md#available-codes-for-fan-devices) and add the number in the `device_code` field. The compoenent will download it to the correct folder. If your device is not working, you will need to learn your own codes and place the .json file in `broadlink_ir/codes/fan/` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
+Find your device's brand code [here](FAN.md#available-codes-for-fan-devices) and add the number in the `device_code` field. The compoenent will download it to the correct folder. If your device is not working, you will need to learn your own codes and place the .json file in `hub_ir/codes/fan/` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
 
 ## Configuration variables
 
@@ -19,10 +19,10 @@ Find your device's brand code [here](FAN.md#available-codes-for-fan-devices) and
 Add a Broadlink RM device named "Bedroom" via config flow (read the [docs](https://www.home-assistant.io/integrations/broadlink/)).
 
 ```yaml
-broadlink_ir:
+hub_ir:
 
 fan:
-  - platform: broadlink_ir
+  - platform: hub_ir
     name: Bedroom fan
     unique_id: bedroom_fan
     device_code: 1000

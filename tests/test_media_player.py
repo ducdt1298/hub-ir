@@ -1,4 +1,4 @@
-"""Tests for the Broadlink IR media player platform."""
+"""Tests for the HubIR media player platform."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Broadlink IR media player platform."""
+"""HubIR media player platform."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = "Broadlink IR Media Player"
+DEFAULT_NAME = "HubIR Media Player"
 DEFAULT_DEVICE_CLASS = MediaPlayerDeviceClass.TV
 DEFAULT_DELAY = 0.5
 
@@ -76,10 +76,10 @@ async def async_setup_platform(
 
     warn_if_no_unique_id("media player", config)
 
-    async_add_entities([BroadlinkIRMediaPlayer(hass, config, device_data)])
+    async_add_entities([HubIRMediaPlayer(hass, config, device_data)])
 
 
-class BroadlinkIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
+class HubIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
     """A media player entity driven by IR/RF codes from a device file."""
 
     _attr_should_poll = False

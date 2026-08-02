@@ -6,6 +6,7 @@ Setup instructions and the device-code tables for each platform:
 * [Media Player platform](MEDIA_PLAYER.md)
 * [Fan platform](FAN.md)
 * [Light platform](LIGHT.md)
+* [Learning panel](PANEL.md) — recording a device the tables do not cover
 
 Installation, migration from SmartIR and the list of changes against upstream
 are in the [top-level README](../README.md).
@@ -25,7 +26,7 @@ explanatory error.
 ## Adding your own device codes
 
 If no code in the tables works for your device, record your own and place the
-JSON file in `custom_components/broadlink_ir/codes/<platform>/`, named after the
+JSON file in `custom_components/hub_ir/codes/<platform>/`, named after the
 `device_code` you configure. A local file always takes precedence over the
 copy in this repository.
 

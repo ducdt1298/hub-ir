@@ -1,1 +1,1 @@
-"""Tests for the Broadlink IR Broadlink integration."""
+"""Tests for the HubIR integration."""

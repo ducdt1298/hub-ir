@@ -1,9 +1,9 @@
 <p align="center">
-  <a href="#"><img src="assets/smartir_mediaplayer.png" width="350" alt="Broadlink IR Media Player"></a>
+  <a href="#"><img src="assets/smartir_mediaplayer.png" width="350" alt="HubIR Media Player"></a>
 </p>
 
 For this platform to work, we need a .json file containing all the necessary IR commands.
-Find your device's brand code [here](MEDIA_PLAYER.md#available-codes-for-tv-devices) and add the number in the `device_code` field. The component will download it to the correct folder. If your device is not working, you will need to learn your own codes and place the .json file in `broadlink_ir/codes/media_player/` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
+Find your device's brand code [here](MEDIA_PLAYER.md#available-codes-for-tv-devices) and add the number in the `device_code` field. The component will download it to the correct folder. If your device is not working, you will need to learn your own codes and place the .json file in `hub_ir/codes/media_player/` subfolders. Please note that the `device_code` field only accepts positive numbers. The .json extension is not required.
 
 ## Configuration variables:
 **name** (Optional): The name of the device<br />
@@ -18,10 +18,10 @@ Find your device's brand code [here](MEDIA_PLAYER.md#available-codes-for-tv-devi
 Add a Broadlink RM device named "Bedroom" via config flow (read the [docs](https://www.home-assistant.io/integrations/broadlink/)).
 
 ```yaml
-broadlink_ir:
+hub_ir:
 
 media_player:
-  - platform: broadlink_ir
+  - platform: hub_ir
     name: Living room TV
     unique_id: living_room_tv
     device_code: 1000
@@ -34,7 +34,7 @@ Source names in device files are usually set to the name that the media player u
 
 ```yaml
 media_player:
-  - platform: broadlink_ir
+  - platform: hub_ir
     name: Living room TV
     unique_id: living_room_tv
     device_code: 1000

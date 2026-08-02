@@ -1,4 +1,4 @@
-"""Broadlink IR light platform."""
+"""HubIR light platform."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from .controller import get_controller
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = "Broadlink IR Light"
+DEFAULT_NAME = "HubIR Light"
 DEFAULT_DELAY = 0.5
 
 CONF_UNIQUE_ID = "unique_id"
@@ -76,7 +76,7 @@ async def async_setup_platform(
 
     warn_if_no_unique_id("light", config)
 
-    async_add_entities([BroadlinkIRLight(hass, config, device_data)])
+    async_add_entities([HubIRLight(hass, config, device_data)])
 
 
 def closest_match(value: float | None, values: list[float]) -> int:
@@ -95,7 +95,7 @@ def closest_match(value: float | None, values: list[float]) -> int:
     return len(values) - 1
 
 
-class BroadlinkIRLight(LightEntity, RestoreEntity):
+class HubIRLight(LightEntity, RestoreEntity):
     """A light entity driven by IR/RF codes from a device file."""
 
     _attr_should_poll = False

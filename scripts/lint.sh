@@ -8,7 +8,7 @@ set -eu
 
 HA_VERSION="${HA_VERSION:-2026.7.4}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.14}"
-IMAGE="broadlink_ir-tests:${HA_VERSION}-py${PYTHON_VERSION}"
+IMAGE="hub_ir-tests:${HA_VERSION}-py${PYTHON_VERSION}"
 
 cd "$(dirname "$0")/.."
 if [ -n "${MSYSTEM:-}" ]; then

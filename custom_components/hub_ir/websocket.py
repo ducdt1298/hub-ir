@@ -84,7 +84,7 @@ def _next_free_codes() -> dict[str, int]:
 
 
 @websocket_api.require_admin
-@websocket_api.websocket_command({vol.Required("type"): "broadlink_ir/info"})
+@websocket_api.websocket_command({vol.Required("type"): "hub_ir/info"})
 @websocket_api.async_response
 async def ws_info(
     hass: HomeAssistant,
@@ -126,7 +126,7 @@ async def ws_info(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "broadlink_ir/plan",
+        vol.Required("type"): "hub_ir/plan",
         vol.Required("platform"): PLATFORM_SELECTOR,
         vol.Required("spec"): dict,
     }
@@ -150,7 +150,7 @@ def ws_plan(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "broadlink_ir/list",
+        vol.Required("type"): "hub_ir/list",
         vol.Required("platform"): PLATFORM_SELECTOR,
     }
 )
@@ -175,7 +175,7 @@ async def ws_list(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "broadlink_ir/get",
+        vol.Required("type"): "hub_ir/get",
         vol.Required("platform"): PLATFORM_SELECTOR,
         vol.Required("device_code"): vol.All(int, vol.Range(min=0)),
     }
@@ -221,7 +221,7 @@ async def ws_get(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "broadlink_ir/save",
+        vol.Required("type"): "hub_ir/save",
         vol.Required("platform"): PLATFORM_SELECTOR,
         vol.Required("device_code"): vol.All(int, vol.Range(min=CUSTOM_CODE_START)),
         vol.Required("spec"): dict,
@@ -276,7 +276,7 @@ async def ws_save(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "broadlink_ir/learn",
+        vol.Required("type"): "hub_ir/learn",
         vol.Required("remote_entity_id"): str,
         vol.Optional("toggle", default=False): bool,
     }
@@ -302,7 +302,7 @@ async def ws_learn(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "broadlink_ir/send",
+        vol.Required("type"): "hub_ir/send",
         vol.Required("remote_entity_id"): str,
         vol.Required("code"): vol.Any(str, [str]),
     }

@@ -12,12 +12,12 @@ from . import COMPONENT_ABS_DIR, DOMAIN, VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
-PANEL_URL_PATH = "broadlink-ir"
-PANEL_TITLE = "Broadlink IR"
+PANEL_URL_PATH = "hub-ir"
+PANEL_TITLE = "HubIR"
 PANEL_ICON = "mdi:remote"
 
-WEBCOMPONENT_NAME = "broadlink-ir-panel"
-_MODULE_FILE = "broadlink-ir-panel.js"
+WEBCOMPONENT_NAME = "hub-ir-panel"
+_MODULE_FILE = "hub-ir-panel.js"
 
 # The version sits in the path rather than in a query string, so a browser
 # holding the previous panel in cache fetches the new one after an update.
@@ -68,10 +68,10 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     except Exception as err:
         hass.data[_REGISTERED] = False
         _LOGGER.warning(
-            "Could not add the Broadlink IR panel to the sidebar (%s). The "
+            "Could not add the HubIR panel to the sidebar (%s). The "
             "platforms still work; only the code-learning panel is unavailable",
             err,
         )
         return
 
-    _LOGGER.debug("Registered the Broadlink IR panel at /%s", PANEL_URL_PATH)
+    _LOGGER.debug("Registered the HubIR panel at /%s", PANEL_URL_PATH)

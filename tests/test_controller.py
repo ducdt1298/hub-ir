@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from custom_components.broadlink_ir import Helper
-from custom_components.broadlink_ir.controller import get_controller
+from custom_components.hub_ir import Helper
+from custom_components.hub_ir.controller import get_controller
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -121,7 +121,7 @@ async def test_loader_downloads_a_missing_device_file(
 ) -> None:
     """A missing device file is fetched from the repository and cached."""
     aioclient_mock.get(
-        "https://raw.githubusercontent.com/ducdt1298/broadlink-ir-hass/main/"
+        "https://raw.githubusercontent.com/ducdt1298/hub-ir/main/"
         "codes/climate/4243.json",
         text=json.dumps({"manufacturer": "Downloaded", "commands": {"off": "b2Zm"}}),
     )
@@ -137,7 +137,7 @@ async def test_loader_reports_a_download_failure(
 ) -> None:
     """An unknown device code fails loudly and leaves no partial file."""
     aioclient_mock.get(
-        "https://raw.githubusercontent.com/ducdt1298/broadlink-ir-hass/main/"
+        "https://raw.githubusercontent.com/ducdt1298/hub-ir/main/"
         "codes/climate/4244.json",
         status=404,
     )

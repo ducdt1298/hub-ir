@@ -20,6 +20,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.hub_ir import DOMAIN
+from custom_components.hub_ir.device_file import PLATFORMS
 from custom_components.hub_ir.validation import ERROR_KEYS
 from custom_components.hub_ir.websocket import _ABORT_MESSAGES
 from homeassistant import config_entries, data_entry_flow
@@ -35,6 +36,7 @@ from homeassistant.components.media_player import (
     DOMAIN as MEDIA_PLAYER_DOMAIN,
     MediaPlayerDeviceClass,
 )
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
@@ -47,6 +49,7 @@ from .conftest import (
     FAN_DEVICE_DATA,
     LIGHT_DEVICE_DATA,
     MEDIA_PLAYER_DEVICE_DATA,
+    SWITCH_DEVICE_DATA,
     get_entity,
     payloads,
 )
@@ -60,6 +63,7 @@ PLATFORM_CASES = [
     ("fan", FAN_DOMAIN, FAN_DEVICE_DATA, 9701),
     ("light", LIGHT_DOMAIN, LIGHT_DEVICE_DATA, 9702),
     ("media_player", MEDIA_PLAYER_DOMAIN, MEDIA_PLAYER_DEVICE_DATA, 9703),
+    ("switch", SWITCH_DOMAIN, SWITCH_DEVICE_DATA, 9704),
 ]
 
 
@@ -152,13 +156,17 @@ def add_entry(hass: HomeAssistant, component, write_device_file):
 async def test_the_first_step_offers_every_platform(
     hass: HomeAssistant, component
 ) -> None:
-    """One integration, four kinds of device: the menu is how you pick."""
+    """One integration, several kinds of device: the menu is how you pick.
+
+    Derived from PLATFORMS rather than listed, so a platform added later has to
+    appear in the menu instead of quietly having no way in.
+    """
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
 
     assert result["type"] is data_entry_flow.FlowResultType.MENU
-    assert set(result["menu_options"]) == {"climate", "fan", "light", "media_player"}
+    assert set(result["menu_options"]) == set(PLATFORMS)
 
 
 @pytest.mark.parametrize(("platform", "domain", "data", "code"), PLATFORM_CASES)

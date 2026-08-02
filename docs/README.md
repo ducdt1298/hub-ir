@@ -6,6 +6,7 @@ Setup instructions and the device-code tables for each platform:
 * [Media Player platform](MEDIA_PLAYER.md)
 * [Fan platform](FAN.md)
 * [Light platform](LIGHT.md)
+* [Switch platform](SWITCH.md) — amplifiers, projectors, heaters: on and off only
 * [Learning panel](PANEL.md) — recording a device the tables do not cover
 * [Services](SERVICES.md) — sending the codes no entity control can reach
 

@@ -472,6 +472,7 @@ _ABORT_MESSAGES = {
         "That device file lists no operation mode Home Assistant recognises"
     ),
     "no_fan_speeds": "That device file lists no fan speeds",
+    "no_switch_commands": "That device file records no on, off or toggle code",
     "remote_not_found": "That remote entity does not exist",
 }
 

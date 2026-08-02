@@ -115,6 +115,23 @@ MEDIA_PLAYER_DEVICE_DATA: dict[str, Any] = {
 }
 
 
+SWITCH_DEVICE_DATA: dict[str, Any] = {
+    "manufacturer": "Test",
+    "supportedModels": ["TEST-AMP"],
+    "supportedController": "Broadlink",
+    "commandsEncoding": "Base64",
+    "commands": {"on": "b24=", "off": "b2Zm"},
+}
+
+# A remote with one power button, where the same code alternates. The entity has
+# to believe a state, or it will send the code the wrong way round.
+SWITCH_TOGGLE_DEVICE_DATA: dict[str, Any] = {
+    **SWITCH_DEVICE_DATA,
+    "supportedModels": ["TEST-PROJECTOR"],
+    "commands": {"toggle": "dG9nZ2xl"},
+}
+
+
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Load custom_components/hub_ir in every test."""

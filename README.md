@@ -185,6 +185,7 @@ Per-platform options and the full code tables:
 - [Media player](docs/MEDIA_PLAYER.md) — 53 device files
 - [Fan](docs/FAN.md) — 16 device files
 - [Light](docs/LIGHT.md) — 5 device files
+- [Switch](docs/SWITCH.md) — amplifiers, projectors, heaters; record your own
 - [Learning panel](docs/PANEL.md) — recording a device the tables do not cover
 - [Services](docs/SERVICES.md) — `hub_ir.send_command` and `hub_ir.send_code`,
   for a television's menu key, an air conditioner's LED toggle, and everything

@@ -234,6 +234,12 @@ class HubIRConfigFlow(ConfigFlow, domain=DOMAIN):
         """Add a TV or media player."""
         return await self._async_step_platform("media_player", user_input)
 
+    async def async_step_switch(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Add a switch: an amplifier, a projector, a heater."""
+        return await self._async_step_platform("switch", user_input)
+
     async def _async_step_platform(
         self, platform: str, user_input: dict[str, Any] | None
     ) -> ConfigFlowResult:

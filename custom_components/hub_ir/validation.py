@@ -19,7 +19,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from . import Helper, device_file_path
 from .controller import BROADLINK_CONTROLLER, get_controller
-from .device_file import HVAC_MODES, PLATFORM_KEYS
+from .device_file import HVAC_MODES, PLATFORM_KEYS, is_recorded
 
 # Every reason this module can refuse a device code. Declared rather than
 # discovered, so the translations can be checked against the list itself: one of
@@ -30,6 +30,7 @@ ERROR_KEYS = (
     "invalid_device_file",
     "no_fan_speeds",
     "no_operation_modes",
+    "no_switch_commands",
     "remote_not_found",
     "unsupported_controller",
     "unsupported_encoding",
@@ -134,5 +135,15 @@ async def async_validate_device(
         raise DeviceFileError(
             "no_fan_speeds", f"Device code {device_code} lists no fan speeds"
         )
+
+    if platform == "switch":
+        # Mirrors switch.py's own constructor check: a switch with none of the
+        # three power codes could never do anything at all.
+        commands = device_data.get("commands") or {}
+        if not any(is_recorded(commands.get(name)) for name in ("on", "off", "toggle")):
+            raise DeviceFileError(
+                "no_switch_commands",
+                f"Device code {device_code} records no on, off or toggle code",
+            )
 
     return device_data

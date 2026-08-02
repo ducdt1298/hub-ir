@@ -374,6 +374,8 @@ def test_temperature_is_the_innermost_and_ascending_step() -> None:
             {"buttons": ["on", "off", "mute"], "sources": ["HDMI1"]},
             ["on", "off", "mute", "sources/HDMI1"],
         ),
+        ("switch", {}, ["on", "off"]),
+        ("switch", {"hasToggle": True}, ["on", "off", "toggle"]),
     ],
 )
 def test_plans_for_the_other_platforms(platform, spec, expected) -> None:
@@ -601,6 +603,7 @@ _EXTRA_SPECS: dict[str, dict[str, Any]] = {
     "fan": {"speed": ["low"]},
     "light": {},
     "media_player": {"buttons": ["on"]},
+    "switch": {},
 }
 
 

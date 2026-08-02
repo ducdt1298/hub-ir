@@ -25,6 +25,7 @@ from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.components.fan import DOMAIN as FAN_DOMAIN
 from homeassistant.components.light import DOMAIN as LIGHT_DOMAIN
 from homeassistant.components.media_player import DOMAIN as MEDIA_PLAYER_DOMAIN
+from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -36,6 +37,7 @@ from .conftest import (
     FAN_DEVICE_DATA,
     LIGHT_DEVICE_DATA,
     MEDIA_PLAYER_DEVICE_DATA,
+    SWITCH_DEVICE_DATA,
     payloads,
 )
 
@@ -50,6 +52,7 @@ PLATFORM_CASES = [
     ("fan", FAN_DOMAIN, 9501, FAN_DEVICE_DATA),
     ("light", LIGHT_DOMAIN, 9502, LIGHT_DEVICE_DATA),
     ("media_player", MEDIA_PLAYER_DOMAIN, 9503, MEDIA_PLAYER_DEVICE_DATA),
+    ("switch", SWITCH_DOMAIN, 9507, SWITCH_DEVICE_DATA),
 ]
 
 
@@ -343,6 +346,7 @@ _PLAN_SPECS: dict[str, dict[str, Any]] = {
         "sources": ["HDMI1", "Channel 1.2"],
         "extraCommands": ["menu"],
     },
+    "switch": {"hasToggle": True, "extraCommands": ["menu"]},
 }
 
 

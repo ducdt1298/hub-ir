@@ -8,7 +8,8 @@
           "climate": "Air conditioner",
           "fan": "Fan",
           "light": "Light",
-          "media_player": "TV or media player"
+          "media_player": "TV or media player",
+          "switch": "Switch or socket"
         }
       },
       "climate": {
@@ -87,6 +88,23 @@
           "power_sensor": "Optional. Tells the entity whether the device is really on.",
           "device_class": "Renaming sources is available under Configure once the entity exists."
         }
+      },
+      "switch": {
+        "title": "Add a switch",
+        "description": "For an IR device that is only ever on or off: an amplifier, a projector, a bathroom heat lamp. The device code names the file of IR codes to use. There are no shipped switch codes yet, so record your own with the HubIR panel in the sidebar.",
+        "data": {
+          "name": "Name",
+          "device_code": "Device code",
+          "controller_data": "Broadlink remote",
+          "delay": "Delay between commands (seconds)",
+          "power_sensor": "Power sensor"
+        },
+        "data_description": {
+          "device_code": "A number such as 90000. Codes from 90000 up are the ones you recorded yourself.",
+          "controller_data": "The remote entity that transmits the codes.",
+          "delay": "How long to wait between the codes of a multi-code command.",
+          "power_sensor": "Optional. Tells the entity whether the device is really on, which matters most for a remote with a single power button."
+        }
       }
     },
     "error": {
@@ -97,7 +115,8 @@
       "no_operation_modes": "That device file lists no operation mode Home Assistant recognises.",
       "no_fan_speeds": "That device file lists no fan speeds.",
       "remote_not_found": "That remote entity does not exist.",
-      "already_configured": "Another HubIR entity already uses this device code on that remote."
+      "already_configured": "Another HubIR entity already uses this device code on that remote.",
+      "no_switch_commands": "That device file records no on, off or toggle code."
     },
     "abort": {
       "already_configured": "This device code is already set up on that remote.",
@@ -107,7 +126,8 @@
       "unsupported_encoding": "That device file stores its codes in an encoding this integration cannot send.",
       "no_operation_modes": "That device file lists no operation mode Home Assistant recognises.",
       "no_fan_speeds": "That device file lists no fan speeds.",
-      "remote_not_found": "That remote entity does not exist."
+      "remote_not_found": "That remote entity does not exist.",
+      "no_switch_commands": "That device file records no on, off or toggle code."
     }
   },
   "options": {
@@ -142,7 +162,8 @@
       "no_operation_modes": "That device file lists no operation mode Home Assistant recognises.",
       "no_fan_speeds": "That device file lists no fan speeds.",
       "remote_not_found": "That remote entity does not exist.",
-      "already_configured": "Another HubIR entity already uses this device code on that remote."
+      "already_configured": "Another HubIR entity already uses this device code on that remote.",
+      "no_switch_commands": "That device file records no on, off or toggle code."
     }
   },
   "selector": {

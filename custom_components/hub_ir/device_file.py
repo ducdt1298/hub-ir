@@ -23,7 +23,7 @@ from typing import Any
 BROADLINK = "Broadlink"
 VALID_ENCODINGS = {"Base64", "Hex", "Pronto"}
 
-PLATFORMS = ("climate", "fan", "light", "media_player")
+PLATFORMS = ("climate", "fan", "light", "media_player", "switch")
 
 # homeassistant.components.climate.const.HVAC_MODES, inlined so this module
 # stays free of Home Assistant.
@@ -42,6 +42,9 @@ PLATFORM_KEYS = {
     "fan": COMMON_KEYS | {"speed"},
     "light": COMMON_KEYS,
     "media_player": COMMON_KEYS,
+    # Nothing extra is required: a two-button remote records only on/off and a
+    # one-button one records only toggle.
+    "switch": COMMON_KEYS,
 }
 
 # Above this a min/max temperature cannot plausibly be Celsius.
@@ -684,6 +687,8 @@ def capture_plan(platform: str, spec: dict[str, Any]) -> list[dict[str, Any]]:
         cells = _light_plan(spec)
     elif platform == "media_player":
         cells = _media_player_plan(spec)
+    elif platform == "switch":
+        cells = _switch_plan(spec)
     else:
         raise ValueError(f"unknown platform {platform!r}")
 
@@ -932,6 +937,25 @@ def _media_player_plan(spec: dict[str, Any]) -> list[PlanCell]:
     return cells
 
 
+def _switch_plan(spec: dict[str, Any]) -> list[PlanCell]:
+    """Plan the captures for a switch: an amplifier, a projector, a heat lamp."""
+    cells = [
+        PlanCell("on", "On", [["on"]], "Power"),
+        PlanCell("off", "Off", [["off"]], "Power"),
+    ]
+    if spec.get("hasToggle"):
+        cells.append(
+            PlanCell(
+                "toggle",
+                "Toggle (a remote with one power button)",
+                [["toggle"]],
+                "Power",
+            )
+        )
+    cells.extend(_extra_cells(spec))
+    return cells
+
+
 def build_device_file(
     platform: str, spec: dict[str, Any], codes: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1075,6 +1099,8 @@ def spec_from_device_file(platform: str, data: dict[str, Any]) -> dict[str, Any]
             buttons=[name for name, _, _ in _MEDIA_PLAYER_BUTTONS if name in commands],
             sources=list((commands.get("sources") or {}).keys()),
         )
+    elif platform == "switch":
+        spec.update(hasToggle="toggle" in commands)
 
     return spec
 

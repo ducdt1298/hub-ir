@@ -44,6 +44,7 @@ DEFAULT_NAMES = {
     "fan": "HubIR Fan",
     "light": "HubIR Light",
     "media_player": "HubIR Media Player",
+    "switch": "HubIR Switch",
 }
 
 # MediaPlayerDeviceClass, spelled out so this module stays free of the

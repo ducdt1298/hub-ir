@@ -11,7 +11,12 @@ from __future__ import annotations
 import pytest
 from pytest_homeassistant_custom_component.common import mock_restore_cache
 
-from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
+from homeassistant.components.climate import (
+    ATTR_PRESET_MODE,
+    DOMAIN as CLIMATE_DOMAIN,
+    PRESET_NONE,
+    HVACMode,
+)
 from homeassistant.components.fan import ATTR_PERCENTAGE, DOMAIN as FAN_DOMAIN
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -31,6 +36,7 @@ from homeassistant.core import HomeAssistant, State
 
 from .conftest import (
     CLIMATE_DEVICE_DATA,
+    CLIMATE_PRESET_DEVICE_DATA,
     FAN_DEVICE_DATA,
     LIGHT_DEVICE_DATA,
     MEDIA_PLAYER_DEVICE_DATA,
@@ -77,6 +83,63 @@ async def test_climate_restores_a_valid_state(
         blocking=True,
     )
     assert payloads(sent_commands) == [["b64:aGVhdDE2"]]
+
+
+async def test_climate_restores_a_preset(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform
+) -> None:
+    """A preset survives a restart, because the unit is still running in it."""
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                "climate.preset_ac",
+                HVACMode.HEAT,
+                {"fan_mode": "low", ATTR_TEMPERATURE: 17, ATTR_PRESET_MODE: "turbo"},
+            ),
+        ),
+    )
+    write_device_file("climate", 9020, CLIMATE_PRESET_DEVICE_DATA)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {
+            **CLIMATE_CONFIG,
+            "name": "Preset AC",
+            "unique_id": "preset_ac",
+            "device_code": 9020,
+        },
+    )
+
+    state = hass.states.get("climate.preset_ac")
+    assert state.attributes[ATTR_PRESET_MODE] == "turbo"
+
+
+@pytest.mark.parametrize("restored", ["quiet", "sleep", None])
+async def test_climate_rejects_a_preset_the_file_does_not_offer(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform, restored
+) -> None:
+    """'quiet' is in the file but unrecorded; 'sleep' is not there at all.
+
+    Home Assistant rejects a preset_mode outside preset_modes, so an entity that
+    adopted one would be unusable until someone touched it.
+    """
+    mock_restore_cache(
+        hass,
+        (State("climate.preset_ac", HVACMode.OFF, {ATTR_PRESET_MODE: restored}),),
+    )
+    write_device_file("climate", 9020, CLIMATE_PRESET_DEVICE_DATA)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {
+            **CLIMATE_CONFIG,
+            "name": "Preset AC",
+            "unique_id": "preset_ac",
+            "device_code": 9020,
+        },
+    )
+
+    state = hass.states.get("climate.preset_ac")
+    assert state.attributes[ATTR_PRESET_MODE] == PRESET_NONE
 
 
 @pytest.mark.parametrize("restored", [STATE_UNAVAILABLE, STATE_UNKNOWN, "dry", "on"])

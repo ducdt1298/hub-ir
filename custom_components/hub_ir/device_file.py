@@ -57,11 +57,21 @@ ANNOTATION_PREFIXES = ("_", "$")
 # by name from the service rather than from an entity control.
 EXTRAS_KEY = "extras"
 
+# Turbo, Eco, Sleep and friends. Flat, one code each: on a real remote these
+# buttons transmit the unit's whole state with one extra bit flipped, so they
+# are not another dimension of the mode/fan/swing/temperature matrix. Making
+# them one would turn 180 codes into 720, which nobody would sit and record.
+PRESETS_KEY = "presets"
+
+# Offered by the panel as a starting point. The entity accepts whatever names a
+# file actually records, because remotes disagree about what to call these.
+DEFAULT_PRESET_NAMES = ("turbo", "eco", "sleep", "quiet", "powerful", "comfort")
+
 # Keys at the top of a command tree that are never an operation mode. climate.py
 # walks the tree by position and substitutes a sibling when the mode it wants is
 # missing, so without this it could hand back the 'off' code, or a whole group
 # dict that then gets walked as if it were the fan-mode level.
-RESERVED_COMMAND_KEYS = frozenset({"on", "off", EXTRAS_KEY})
+RESERVED_COMMAND_KEYS = frozenset({"on", "off", EXTRAS_KEY, PRESETS_KEY})
 
 # Broadlink packet types: 0x26 is IR, the rest are the RF variants.
 PACKET_IR = 0x26
@@ -242,6 +252,13 @@ def validate(platform: str, data: Any, device_code: str = "") -> Report:
 
     if platform == "climate":
         _check_climate(data, report)
+    elif PRESETS_KEY in (data.get("commands") or {}):
+        # Not an error: the codes are still reachable by name from the service,
+        # they just are not offered as preset modes on this platform.
+        report.warn(
+            f"commands.{PRESETS_KEY} is only offered as preset modes on the "
+            f"climate platform, not on {platform}"
+        )
     if platform == "fan" and not data.get("speed"):
         report.error("speed must be a non-empty list")
 
@@ -352,6 +369,49 @@ def _check_codes_decode(
         )
 
 
+def _check_preset_baseline(data: dict, report: Report) -> None:
+    """Check the base state a file's preset codes were captured from."""
+    commands = data.get("commands") or {}
+    has_presets = has_any_code(commands.get(PRESETS_KEY) or {})
+    baseline = data.get("presetBaseline")
+
+    if baseline is None:
+        if has_presets:
+            report.warn(
+                "commands.presets records codes but presetBaseline is missing, so "
+                "the entity will send the preset without being able to report the "
+                "mode, fan speed and temperature the code actually commands"
+            )
+        return
+
+    if not isinstance(baseline, dict):
+        report.error("presetBaseline must be an object")
+        return
+
+    mode = baseline.get("operationMode")
+    if mode is not None and mode not in (data.get("operationModes") or []):
+        # Not cosmetic: the entity would set hvac_mode to a value outside
+        # hvac_modes, and Home Assistant raises while writing that state.
+        report.error(f"presetBaseline.operationMode {mode!r} is not in operationModes")
+
+    for key, declared in (("fanMode", "fanModes"), ("swingMode", "swingModes")):
+        value = baseline.get(key)
+        if value is not None and value not in (data.get(declared) or []):
+            report.warn(
+                f"presetBaseline.{key} {value!r} is not in {declared}, so the "
+                "entity substitutes the nearest one it knows"
+            )
+
+    temperature = baseline.get("temperature")
+    if isinstance(temperature, int | float) and not (
+        data.get("minTemperature", 0) <= temperature <= data.get("maxTemperature", 0)
+    ):
+        report.warn(
+            f"presetBaseline.temperature {temperature:g} is outside the "
+            f"{data.get('minTemperature')}-{data.get('maxTemperature')} range"
+        )
+
+
 def _check_climate(data: dict, report: Report) -> None:
     """Check a climate file's temperature range and command tree."""
     min_temp = data.get("minTemperature")
@@ -392,6 +452,9 @@ def _check_climate(data: dict, report: Report) -> None:
 
     if "off" not in commands:
         report.error("commands has no 'off' entry")
+
+    _check_extras(commands, report, PRESETS_KEY)
+    _check_preset_baseline(data, report)
 
     fan_modes = data.get("fanModes") or []
     swing_modes = data.get("swingModes") or []
@@ -641,6 +704,7 @@ def _climate_plan(spec: dict[str, Any]) -> list[PlanCell]:
                         )
                     )
 
+    cells.extend(_preset_cells(spec, unit))
     cells.extend(_extra_cells(spec))
     return cells
 
@@ -686,6 +750,90 @@ def _light_plan(spec: dict[str, Any]) -> list[PlanCell]:
         cells.append(PlanCell("night", "Night light", [["night"]], "Brightness"))
     cells.extend(_extra_cells(spec))
     return cells
+
+
+def preset_baseline(spec: dict[str, Any]) -> dict[str, Any]:
+    """Return the base state a preset capture has to be made from.
+
+    Pressing Turbo on a real remote does not send a small 'turbo on' packet. It
+    sends the unit's whole state — mode, fan speed, temperature — with one extra
+    bit flipped. So a captured preset code always puts the unit back into
+    whichever state the remote was showing when it was pressed, and a file that
+    does not say which state that was records a code nobody can reason about.
+
+    The same dict is spelled out in the capture label and written into the
+    device file, so the instruction and the record cannot disagree.
+    """
+    if not spec.get(PRESETS_KEY):
+        return {}
+
+    declared = spec.get("presetBaseline") or {}
+    modes = [mode for mode in spec.get("operationModes") or [] if mode != "off"]
+    fan_modes = list(spec.get("fanModes") or [])
+    swing_modes = list(spec.get("swingModes") or [])
+    temperatures = temperature_steps(
+        spec["minTemperature"], spec["maxTemperature"], spec["precision"]
+    )
+
+    baseline: dict[str, Any] = {}
+    if modes:
+        baseline["operationMode"] = _honoured(declared.get("operationMode"), modes)
+    if fan_modes:
+        baseline["fanMode"] = _honoured(declared.get("fanMode"), fan_modes)
+    if swing_modes:
+        baseline["swingMode"] = _honoured(declared.get("swingMode"), swing_modes)
+    if temperatures:
+        # The middle step, not the minimum: nobody dials an air conditioner down
+        # to 16 °C to record a preset. Synthesising a value is legitimate here
+        # because the label instructs the user to set it rather than claiming to
+        # have observed it.
+        declared_temperature = declared.get("temperature")
+        middle = temperatures[len(temperatures) // 2]
+        chosen = _honoured(
+            f"{declared_temperature:g}"
+            if isinstance(declared_temperature, int | float)
+            else None,
+            temperatures,
+            default=middle,
+        )
+        baseline["temperature"] = float(chosen) if "." in chosen else int(chosen)
+
+    return baseline
+
+
+def _honoured(value: Any, allowed: list[str], default: str | None = None) -> str:
+    """Return ``value`` when the spec can honour it, else a deterministic pick."""
+    return value if value in allowed else (default or allowed[0])
+
+
+def _preset_label(name: str, baseline: dict[str, Any], unit: str) -> str:
+    """Describe a preset capture, including the state to dial in first."""
+    parts = [
+        str(baseline[key])
+        for key in ("operationMode", "fanMode", "swingMode")
+        if baseline.get(key)
+    ]
+    if (temperature := baseline.get("temperature")) is not None:
+        parts.append(f"{temperature:g}{unit}")
+
+    if not parts:
+        return f"Preset · {name}"
+    return f"Preset · {name} — set the remote to {' · '.join(parts)} first"
+
+
+def _preset_cells(spec: dict[str, Any], unit: str) -> list[PlanCell]:
+    """Return the capture cells for a climate spec's one-touch buttons."""
+    baseline = preset_baseline(spec)
+    return [
+        PlanCell(
+            f"{PRESETS_KEY}/{name}",
+            _preset_label(name, baseline, unit),
+            [[PRESETS_KEY, name]],
+            "Presets",
+        )
+        for name in spec.get(PRESETS_KEY) or []
+        if str(name) and not str(name).startswith(ANNOTATION_PREFIXES)
+    ]
 
 
 def _extra_cells(spec: dict[str, Any]) -> list[PlanCell]:
@@ -766,6 +914,11 @@ def build_device_file(
         data["fanModes"] = list(spec.get("fanModes") or [])
         if spec.get("swingModes"):
             data["swingModes"] = list(spec["swingModes"])
+        # Top-level, not inside commands: _check_codes_decode base64-decodes
+        # every leaf under commands, so 'cool' there would be reported as a
+        # corrupt code and the file would refuse to save.
+        if baseline := preset_baseline(spec):
+            data["presetBaseline"] = baseline
     elif platform == "fan":
         data["speed"] = list(spec.get("speed") or [])
     elif platform == "light":
@@ -846,6 +999,12 @@ def spec_from_device_file(platform: str, data: dict[str, Any]) -> dict[str, Any]
             fanModes=list(data.get("fanModes") or []),
             swingModes=list(data.get("swingModes") or []),
             hasOnCommand=is_recorded(commands.get("on")),
+            presets=[
+                name
+                for name in commands.get(PRESETS_KEY) or {}
+                if not str(name).startswith(ANNOTATION_PREFIXES)
+            ],
+            presetBaseline=dict(data.get("presetBaseline") or {}),
         )
         spec["modeOptions"] = {
             mode: _infer_mode_options(commands.get(mode), spec)

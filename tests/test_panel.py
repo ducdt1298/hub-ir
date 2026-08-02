@@ -25,6 +25,7 @@ from custom_components.hub_ir.device_file import (
     capture_plan,
     codes_from_device_file,
     is_recorded,
+    preset_baseline,
     spec_from_device_file,
     temperature_steps,
     validate,
@@ -440,6 +441,149 @@ def test_a_skipped_capture_becomes_a_placeholder_not_a_missing_key() -> None:
     report = validate("climate", data, "90002")
     assert report.errors == []
     assert any("no code recorded" in warning for warning in report.warnings)
+
+
+# ---------------------------------------------------------------------------
+# One-touch buttons
+# ---------------------------------------------------------------------------
+
+_PRESET_SPEC: dict[str, Any] = {
+    "minTemperature": 16,
+    "maxTemperature": 30,
+    "precision": 1,
+    "temperatureUnit": "C",
+    "operationModes": ["cool", "heat", "dry"],
+    "fanModes": ["low", "mid", "high", "auto"],
+    "presets": ["turbo", "eco"],
+}
+
+
+def test_presets_do_not_multiply_the_capture_plan() -> None:
+    """A preset is one code, not another dimension of the matrix.
+
+    Three modes by four fan speeds by fifteen temperatures is 180 captures plus
+    'off'. Making presets a fourth dimension would make it 720, which is why
+    they are a flat group instead.
+    """
+    without = capture_plan("climate", {**_PRESET_SPEC, "presets": []})
+    with_presets = capture_plan("climate", _PRESET_SPEC)
+
+    assert len(without) == 181
+    assert len(with_presets) == 183
+
+
+def test_preset_cells_name_the_base_state_to_dial_in() -> None:
+    """The label is the only place the person holding the remote is told."""
+    cells = capture_plan("climate", _PRESET_SPEC)
+    turbo = next(cell for cell in cells if cell["key"] == "presets/turbo")
+
+    assert turbo["targets"] == [["presets", "turbo"]]
+    assert turbo["group"] == "Presets"
+    for part in ("turbo", "cool", "low", "23"):
+        assert part in turbo["label"], turbo["label"]
+
+
+def test_the_preset_label_and_the_written_baseline_agree() -> None:
+    """A capture instruction that disagrees with the record is worse than none."""
+    plan = capture_plan("climate", _PRESET_SPEC)
+    data = build_device_file(
+        "climate", _PRESET_SPEC, {cell["key"]: GOOD_CODE for cell in plan}
+    )
+    baseline = data["presetBaseline"]
+    label = next(cell["label"] for cell in plan if cell["key"] == "presets/turbo")
+
+    assert baseline == {
+        "operationMode": "cool",
+        "fanMode": "low",
+        "temperature": 23,
+    }
+    for value in baseline.values():
+        assert f"{value:g}" if isinstance(value, int) else value in label
+    assert validate("climate", data, "90020").errors == []
+    assert validate("climate", data, "90020").warnings == []
+
+
+def test_a_declared_baseline_is_kept_when_the_spec_can_honour_it() -> None:
+    """Whoever recorded the codes knows which state they used."""
+    spec = {
+        **_PRESET_SPEC,
+        "presetBaseline": {
+            "operationMode": "heat",
+            "fanMode": "high",
+            "temperature": 26,
+        },
+    }
+
+    assert preset_baseline(spec) == {
+        "operationMode": "heat",
+        "fanMode": "high",
+        "temperature": 26,
+    }
+
+
+def test_a_baseline_outside_the_declared_modes_is_refused_by_validate() -> None:
+    """The entity would set an hvac_mode HA rejects, so the file cannot save."""
+    plan = capture_plan("climate", _PRESET_SPEC)
+    data = build_device_file(
+        "climate", _PRESET_SPEC, {cell["key"]: GOOD_CODE for cell in plan}
+    )
+    data["presetBaseline"]["operationMode"] = "fan_only"
+
+    report = validate("climate", data, "90021")
+    assert any("presetBaseline.operationMode" in error for error in report.errors)
+
+
+def test_recorded_presets_without_a_baseline_are_a_warning() -> None:
+    """The codes work; the entity just cannot say what state they command."""
+    plan = capture_plan("climate", _PRESET_SPEC)
+    data = build_device_file(
+        "climate", _PRESET_SPEC, {cell["key"]: GOOD_CODE for cell in plan}
+    )
+    del data["presetBaseline"]
+
+    report = validate("climate", data, "90022")
+    assert report.errors == []
+    assert any("presetBaseline is missing" in warning for warning in report.warnings)
+
+
+def test_presets_round_trip_through_the_template_loader() -> None:
+    """Re-opening the file must recover the buttons and the state they need."""
+    plan = capture_plan("climate", _PRESET_SPEC)
+    data = build_device_file(
+        "climate", _PRESET_SPEC, {cell["key"]: GOOD_CODE for cell in plan}
+    )
+
+    recovered = spec_from_device_file("climate", data)
+    assert recovered["presets"] == ["turbo", "eco"]
+    assert recovered["presetBaseline"] == data["presetBaseline"]
+
+    codes = codes_from_device_file("climate", data, recovered)
+    assert codes["presets/turbo"] == GOOD_CODE
+    assert codes["presets/eco"] == GOOD_CODE
+
+    # The mode/fan/temperature part of the plan is free to shrink here, because
+    # every cell was given the same code and _infer_mode_options reads identical
+    # fan subtrees as "this unit ignores fan speed". The preset cells are what
+    # this test is about, and they have to come back unchanged.
+    replanned = capture_plan("climate", recovered)
+    assert [cell for cell in replanned if cell["group"] == "Presets"] == [
+        cell for cell in plan if cell["group"] == "Presets"
+    ]
+
+
+def test_presets_on_another_platform_are_a_warning_not_an_error() -> None:
+    """The codes stay reachable by name; they are just not preset modes there."""
+    data = {
+        "manufacturer": "Test",
+        "supportedModels": ["T"],
+        "supportedController": "Broadlink",
+        "commandsEncoding": "Base64",
+        "commands": {"on": GOOD_CODE, "presets": {"turbo": GOOD_CODE}},
+    }
+
+    report = validate("media_player", data, "90023")
+    assert report.errors == []
+    assert any("only offered as preset modes" in warning for warning in report.warnings)
 
 
 # ---------------------------------------------------------------------------

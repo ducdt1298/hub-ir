@@ -56,6 +56,18 @@ CLIMATE_DEVICE_DATA: dict[str, Any] = {
     },
 }
 
+# The same air conditioner with two one-touch buttons, plus the base state they
+# were captured from. 'quiet' is left as a placeholder on purpose: an
+# unrecorded preset must not be offered.
+CLIMATE_PRESET_DEVICE_DATA: dict[str, Any] = {
+    **CLIMATE_DEVICE_DATA,
+    "presetBaseline": {"operationMode": "heat", "fanMode": "low", "temperature": 17},
+    "commands": {
+        **CLIMATE_DEVICE_DATA["commands"],
+        "presets": {"turbo": "dHVyYm8=", "eco": "ZWNv", "quiet": ""},
+    },
+}
+
 FAN_DEVICE_DATA: dict[str, Any] = {
     "manufacturer": "Test",
     "supportedModels": ["TEST-FAN"],

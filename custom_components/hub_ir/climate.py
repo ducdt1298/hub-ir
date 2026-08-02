@@ -14,7 +14,12 @@ from homeassistant.components.climate import (
     ClimateEntityFeature,
     HVACMode,
 )
-from homeassistant.components.climate.const import ATTR_HVAC_MODE, HVAC_MODES
+from homeassistant.components.climate.const import (
+    ATTR_HVAC_MODE,
+    ATTR_PRESET_MODE,
+    HVAC_MODES,
+    PRESET_NONE,
+)
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
@@ -46,7 +51,7 @@ from . import (
 )
 from .const import CONF_DEVICE_INFO
 from .controller import get_controller
-from .device_file import ANNOTATION_PREFIXES, RESERVED_COMMAND_KEYS
+from .device_file import ANNOTATION_PREFIXES, PRESETS_KEY, RESERVED_COMMAND_KEYS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -194,6 +199,12 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
             self._current_swing_mode = self._swing_modes[0]
             self._support_swing = True
 
+        self._preset_mode = PRESET_NONE
+        self._preset_baseline = self._parse_preset_baseline(device_data)
+        self._preset_modes = self._recorded_presets()
+        if self._preset_modes:
+            self._support_flags = self._support_flags | ClimateEntityFeature.PRESET_MODE
+
         self._temp_lock = asyncio.Lock()
         self._on_by_remote = False
 
@@ -205,6 +216,79 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
             self._controller_data,
             self._delay,
         )
+
+    def _recorded_presets(self) -> list[str]:
+        """Return the preset modes to offer, PRESET_NONE first, or nothing.
+
+        Derived from the codes the file actually records rather than from a list
+        beside them. A second source of truth is a second thing that can
+        disagree with the tree, which is why media_player's source_list is built
+        the same way, and a placeholder must never be advertised as sendable.
+        """
+        presets = self._commands.get(PRESETS_KEY) or {}
+        recorded = [
+            name
+            for name, command in presets.items()
+            if not str(name).startswith(_ANNOTATION_PREFIXES) and is_recorded(command)
+        ]
+
+        if skipped := len(presets) - len(recorded):
+            _LOGGER.warning(
+                "Device code %s leaves %s of its %s preset(s) unrecorded, so they "
+                "are not offered",
+                self._device_code,
+                skipped,
+                len(presets),
+            )
+
+        return [PRESET_NONE, *recorded] if recorded else []
+
+    def _parse_preset_baseline(self, device_data: dict[str, Any]) -> dict[str, Any]:
+        """Return the parts of the file's preset baseline this entity can honour.
+
+        validate() checks the same things, but it never runs when an entity is
+        constructed: a hand-written or hand-edited file reaches this code without
+        having passed it. Anything unusable is dropped with a warning rather than
+        allowed to become a state Home Assistant will reject.
+        """
+        declared = device_data.get("presetBaseline")
+        if not isinstance(declared, dict):
+            return {}
+
+        baseline: dict[str, Any] = {}
+        for key, allowed in (
+            ("operationMode", self._operation_modes),
+            ("fanMode", self._fan_modes),
+            ("swingMode", self._swing_modes or []),
+        ):
+            if (value := declared.get(key)) is None:
+                continue
+            if value in allowed:
+                baseline[key] = value
+            else:
+                _LOGGER.warning(
+                    "Device code %s has presetBaseline.%s %r, which it does not "
+                    "offer; ignoring it",
+                    self._device_code,
+                    key,
+                    value,
+                )
+
+        temperature = declared.get("temperature")
+        if isinstance(temperature, int | float) and not isinstance(temperature, bool):
+            if self._min_temperature <= temperature <= self._max_temperature:
+                baseline["temperature"] = self._round_to_precision(temperature)
+            else:
+                _LOGGER.warning(
+                    "Device code %s has presetBaseline.temperature %g, outside its "
+                    "%g-%g range; ignoring it",
+                    self._device_code,
+                    temperature,
+                    self._min_temperature,
+                    self._max_temperature,
+                )
+
+        return baseline
 
     async def async_added_to_hass(self) -> None:
         """Restore the previous state and start watching the linked sensors."""
@@ -232,6 +316,13 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
                 last_on_operation := last_state.attributes.get("last_on_operation")
             ) in self._operation_modes:
                 self._last_on_operation = last_on_operation
+
+            # PRESET_NONE is in _preset_modes, so restoring 'none' works too.
+            if self._preset_modes and (
+                (preset := last_state.attributes.get(ATTR_PRESET_MODE))
+                in self._preset_modes
+            ):
+                self._preset_mode = preset
 
         # Tracked through async_on_remove: the options flow reloads the entry on
         # every Save, and a listener left behind would keep answering afterwards.
@@ -367,6 +458,20 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
         return self._current_swing_mode
 
     @property
+    def preset_modes(self) -> list[str] | None:
+        """Return the one-touch buttons the device file records, if any.
+
+        None rather than an empty list: the climate component only accepts a
+        preset_mode when PRESET_MODE is among the supported features.
+        """
+        return self._preset_modes or None
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Return the preset believed to be active."""
+        return self._preset_mode if self._preset_modes else None
+
+    @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
         return self._current_temperature
@@ -419,6 +524,7 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
                 "_hvac_mode",
                 "_last_on_operation",
                 "_on_by_remote",
+                "_preset_mode",
             ):
                 self._target_temperature = self._round_to_precision(temperature)
                 self._hvac_mode = hvac_mode
@@ -427,7 +533,9 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
                 await self.send_command()
             return
 
-        async with optimistic_state(self, "_target_temperature", "_on_by_remote"):
+        async with optimistic_state(
+            self, "_target_temperature", "_on_by_remote", "_preset_mode"
+        ):
             self._target_temperature = self._round_to_precision(temperature)
             if self._hvac_mode != HVACMode.OFF:
                 await self.send_command()
@@ -435,7 +543,7 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
     async def async_set_hvac_mode(self, hvac_mode: str) -> None:
         """Set operation mode."""
         async with optimistic_state(
-            self, "_hvac_mode", "_last_on_operation", "_on_by_remote"
+            self, "_hvac_mode", "_last_on_operation", "_on_by_remote", "_preset_mode"
         ):
             self._hvac_mode = hvac_mode
             if hvac_mode != HVACMode.OFF:
@@ -444,17 +552,86 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
         """Set fan mode."""
-        async with optimistic_state(self, "_current_fan_mode", "_on_by_remote"):
+        async with optimistic_state(
+            self, "_current_fan_mode", "_on_by_remote", "_preset_mode"
+        ):
             self._current_fan_mode = fan_mode
             if self._hvac_mode != HVACMode.OFF:
                 await self.send_command()
 
     async def async_set_swing_mode(self, swing_mode: str) -> None:
         """Set swing mode."""
-        async with optimistic_state(self, "_current_swing_mode", "_on_by_remote"):
+        async with optimistic_state(
+            self, "_current_swing_mode", "_on_by_remote", "_preset_mode"
+        ):
             self._current_swing_mode = swing_mode
             if self._hvac_mode != HVACMode.OFF:
                 await self.send_command()
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Send a one-touch button, or re-send the ordinary state to clear one.
+
+        Clearing is not a separate code. The preset bit lives in the state frame,
+        so transmitting the ordinary state again is what physically turns it off —
+        which is also why every other mutator clears the preset.
+        """
+        if preset_mode == PRESET_NONE:
+            async with optimistic_state(self, "_preset_mode", "_on_by_remote"):
+                self._preset_mode = PRESET_NONE
+                if self._hvac_mode != HVACMode.OFF:
+                    await self.send_command()
+            return
+
+        if preset_mode not in self._preset_modes:
+            raise HomeAssistantError(
+                f"Device code {self._device_code} has no code recorded for the "
+                f"preset {preset_mode!r}"
+            )
+
+        # Everything the baseline can touch is snapshotted, so a failed transmit
+        # rolls back the whole move rather than leaving a state that never went.
+        async with optimistic_state(
+            self,
+            "_preset_mode",
+            "_hvac_mode",
+            "_last_on_operation",
+            "_current_fan_mode",
+            "_current_swing_mode",
+            "_target_temperature",
+            "_on_by_remote",
+        ):
+            self._preset_mode = preset_mode
+            self._adopt_preset_baseline()
+            await self.send_preset_command(preset_mode)
+
+    def _adopt_preset_baseline(self) -> None:
+        """Report the state the preset's own packet commands.
+
+        The captured code carries a whole state frame, so after sending it the
+        unit really is at that mode, fan speed and temperature. Reporting the
+        state we had before would be a lie with a visible consequence: the next
+        temperature change would be computed from the wrong starting point.
+        """
+        baseline = self._preset_baseline
+
+        if mode := baseline.get("operationMode"):
+            self._hvac_mode = mode
+        elif self._hvac_mode == HVACMode.OFF:
+            # A preset frame carries the power bit, so the unit is running now
+            # even though the file did not say in which mode. Same guess the
+            # power sensor makes, so the two agree.
+            self._hvac_mode = self._last_on_operation or self._operation_modes[1]
+
+        if fan_mode := baseline.get("fanMode"):
+            self._current_fan_mode = fan_mode
+        if (swing_mode := baseline.get("swingMode")) and self._support_swing:
+            self._current_swing_mode = swing_mode
+        if (temperature := baseline.get("temperature")) is not None:
+            self._target_temperature = temperature
+
+        if self._hvac_mode != HVACMode.OFF:
+            self._last_on_operation = self._hvac_mode
+        self._on_by_remote = False
 
     async def async_turn_off(self) -> None:
         """Turn off."""
@@ -475,6 +652,11 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
         """
         async with self._temp_lock:
             self._on_by_remote = False
+            # The ordinary state frame carries the preset bit off, so sending one
+            # clears whatever preset was active. Set here rather than in each
+            # mutator: this is the single funnel they all pass through, so a
+            # mutator added later cannot forget.
+            self._preset_mode = PRESET_NONE
 
             if self._hvac_mode == HVACMode.OFF:
                 off_command = self._commands.get("off")
@@ -490,12 +672,30 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
             # Resolved before the 'on' code is sent, so a device file that
             # cannot express this state does not leave the unit switched on.
             command = self._resolve_command()
+            await self._send_state_code(command)
 
-            if "on" in self._commands:
-                await self._controller.send(self._commands["on"])
-                await asyncio.sleep(self._delay)
+    async def send_preset_command(self, preset_mode: str) -> None:
+        """Send one preset's code, the same way an ordinary state code is sent."""
+        async with self._temp_lock:
+            command = (self._commands.get(PRESETS_KEY) or {}).get(preset_mode)
+            if not is_recorded(command):
+                raise HomeAssistantError(
+                    f"Device code {self._device_code} has no code recorded for the "
+                    f"preset {preset_mode!r}"
+                )
+            await self._send_state_code(command)
 
-            await self._controller.send(command)
+    async def _send_state_code(self, command: Any) -> None:
+        """Send the optional power-on code, then a state frame.
+
+        Shared by the ordinary state and by a preset, so the dozen files that
+        need a separate 'on' code first behave the same either way.
+        """
+        if "on" in self._commands:
+            await self._controller.send(self._commands["on"])
+            await asyncio.sleep(self._delay)
+
+        await self._controller.send(command)
 
     def _resolve_command(self) -> Any:
         """Return the code for the current state, tolerating sparse files.

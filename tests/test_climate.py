@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from homeassistant.components.climate import (
     ATTR_FAN_MODE,
     ATTR_HVAC_MODE,
+    ATTR_PRESET_MODE,
     DOMAIN as CLIMATE_DOMAIN,
+    PRESET_NONE,
     SERVICE_SET_FAN_MODE,
     SERVICE_SET_HVAC_MODE,
+    SERVICE_SET_PRESET_MODE,
     SERVICE_SET_TEMPERATURE,
+    ClimateEntityFeature,
     HVACMode,
 )
 from homeassistant.const import (
@@ -25,7 +31,12 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .conftest import CLIMATE_DEVICE_DATA, get_entity, payloads
+from .conftest import (
+    CLIMATE_DEVICE_DATA,
+    CLIMATE_PRESET_DEVICE_DATA,
+    get_entity,
+    payloads,
+)
 
 ENTITY_ID = "climate.test_ac"
 CONFIG = {
@@ -406,6 +417,252 @@ async def test_a_mode_with_nothing_to_fall_back_on_raises(
 
     assert payloads(sent_commands) == []
     assert hass.states.get("climate.t_ac").state == HVACMode.OFF
+
+
+# ---------------------------------------------------------------------------
+# One-touch buttons: Turbo, Eco, Sleep
+# ---------------------------------------------------------------------------
+
+PRESET_ENTITY = "climate.preset_ac"
+PRESET_CONFIG = {
+    **CONFIG,
+    "name": "Preset AC",
+    "unique_id": "preset_ac",
+    "device_code": 9020,
+}
+
+
+@pytest.fixture
+async def preset_climate(hass, write_device_file, sent_commands, setup_platform):
+    """Set up a climate entity whose file records two preset buttons."""
+    write_device_file("climate", 9020, CLIMATE_PRESET_DEVICE_DATA)
+    await setup_platform(CLIMATE_DOMAIN, PRESET_CONFIG)
+    return sent_commands
+
+
+async def test_a_file_without_presets_advertises_none(
+    hass: HomeAssistant, climate
+) -> None:
+    """None of the 407 shipped files has presets; none may grow the feature."""
+    state = hass.states.get(ENTITY_ID)
+
+    assert not state.attributes["supported_features"] & ClimateEntityFeature.PRESET_MODE
+    assert state.attributes.get("preset_modes") is None
+    assert state.attributes.get("preset_mode") is None
+
+
+async def test_preset_modes_come_from_the_recorded_codes(
+    hass: HomeAssistant, preset_climate
+) -> None:
+    """A preset left as a placeholder cannot be sent, so it is not offered."""
+    state = hass.states.get(PRESET_ENTITY)
+
+    assert state.attributes["supported_features"] & ClimateEntityFeature.PRESET_MODE
+    assert state.attributes["preset_modes"] == [PRESET_NONE, "turbo", "eco"]
+    assert state.attributes["preset_mode"] == PRESET_NONE
+
+
+async def test_setting_a_preset_sends_its_code_and_adopts_the_baseline(
+    hass: HomeAssistant, preset_climate
+) -> None:
+    """The captured frame commands a whole state, so the entity reports it.
+
+    Claiming the old temperature would make the next adjustment start from a
+    number the unit is not on.
+    """
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: PRESET_ENTITY, ATTR_PRESET_MODE: "turbo"},
+        blocking=True,
+    )
+
+    assert payloads(preset_climate) == [["b64:dHVyYm8="]]
+    state = hass.states.get(PRESET_ENTITY)
+    assert state.attributes["preset_mode"] == "turbo"
+    assert state.state == HVACMode.HEAT
+    assert state.attributes[ATTR_FAN_MODE] == "low"
+    assert state.attributes[ATTR_TEMPERATURE] == 17
+
+
+async def test_clearing_a_preset_re_sends_the_ordinary_state(
+    hass: HomeAssistant, preset_climate
+) -> None:
+    """The preset bit lives in the state frame, so the frame is what clears it."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: PRESET_ENTITY, ATTR_PRESET_MODE: "turbo"},
+        blocking=True,
+    )
+    preset_climate.clear()
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: PRESET_ENTITY, ATTR_PRESET_MODE: PRESET_NONE},
+        blocking=True,
+    )
+
+    # The baseline put it in heat at 17, so that is the frame that goes out.
+    assert payloads(preset_climate) == [["b64:aGVhdDE3"]]
+    assert hass.states.get(PRESET_ENTITY).attributes["preset_mode"] == PRESET_NONE
+
+
+async def test_clearing_a_preset_while_off_sends_nothing(
+    hass: HomeAssistant, preset_climate
+) -> None:
+    """Nothing is running, so there is no state to re-assert."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: PRESET_ENTITY, ATTR_PRESET_MODE: PRESET_NONE},
+        blocking=True,
+    )
+
+    assert payloads(preset_climate) == []
+    assert hass.states.get(PRESET_ENTITY).state == HVACMode.OFF
+
+
+@pytest.mark.parametrize(
+    ("service", "data"),
+    [
+        (SERVICE_SET_HVAC_MODE, {ATTR_HVAC_MODE: HVACMode.COOL}),
+        (SERVICE_SET_FAN_MODE, {ATTR_FAN_MODE: "low"}),
+        (SERVICE_SET_TEMPERATURE, {ATTR_TEMPERATURE: 16}),
+        (SERVICE_TURN_OFF, {}),
+    ],
+)
+async def test_any_other_change_clears_the_preset(
+    hass: HomeAssistant, preset_climate, service: str, data: dict
+) -> None:
+    """An ordinary state frame turns the preset bit off, so the attribute follows."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: PRESET_ENTITY, ATTR_PRESET_MODE: "eco"},
+        blocking=True,
+    )
+    assert hass.states.get(PRESET_ENTITY).attributes["preset_mode"] == "eco"
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN, service, {ATTR_ENTITY_ID: PRESET_ENTITY, **data}, blocking=True
+    )
+
+    assert hass.states.get(PRESET_ENTITY).attributes["preset_mode"] == PRESET_NONE
+
+
+async def test_a_failed_preset_send_rolls_back_every_attribute(
+    hass: HomeAssistant, preset_climate
+) -> None:
+    """A state that was never transmitted must not be published."""
+    before = hass.states.get(PRESET_ENTITY)
+
+    with (
+        patch(
+            "custom_components.hub_ir.controller.BroadlinkController.send",
+            side_effect=HomeAssistantError("no remote"),
+        ),
+        pytest.raises(HomeAssistantError),
+    ):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_PRESET_MODE,
+            {ATTR_ENTITY_ID: PRESET_ENTITY, ATTR_PRESET_MODE: "turbo"},
+            blocking=True,
+        )
+
+    after = hass.states.get(PRESET_ENTITY)
+    assert after.state == before.state
+    assert after.attributes["preset_mode"] == PRESET_NONE
+    assert after.attributes[ATTR_FAN_MODE] == before.attributes[ATTR_FAN_MODE]
+    assert after.attributes[ATTR_TEMPERATURE] == before.attributes[ATTR_TEMPERATURE]
+
+
+async def test_a_preset_on_a_file_with_a_separate_on_code_sends_on_first(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform
+) -> None:
+    """A preset is a state frame, so it needs the same power-on code before it."""
+    data = {
+        **CLIMATE_PRESET_DEVICE_DATA,
+        "commands": {**CLIMATE_PRESET_DEVICE_DATA["commands"], "on": "b24="},
+    }
+    write_device_file("climate", 9021, data)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {**CONFIG, "name": "On AC", "unique_id": "on_ac", "device_code": 9021},
+    )
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: "climate.on_ac", ATTR_PRESET_MODE: "turbo"},
+        blocking=True,
+    )
+
+    assert payloads(sent_commands) == [["b64:b24="], ["b64:dHVyYm8="]]
+
+
+async def test_a_preset_with_no_baseline_still_turns_the_entity_on(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform
+) -> None:
+    """The frame carries the power bit, so reporting 'off' afterwards is a lie."""
+    data = {
+        **CLIMATE_DEVICE_DATA,
+        "commands": {
+            **CLIMATE_DEVICE_DATA["commands"],
+            "presets": {"turbo": "dHVyYm8="},
+        },
+    }
+    write_device_file("climate", 9022, data)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {**CONFIG, "name": "NB AC", "unique_id": "nb_ac", "device_code": 9022},
+    )
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: "climate.nb_ac", ATTR_PRESET_MODE: "turbo"},
+        blocking=True,
+    )
+
+    state = hass.states.get("climate.nb_ac")
+    assert state.state == HVACMode.COOL
+    assert state.attributes["preset_mode"] == "turbo"
+
+
+async def test_a_baseline_the_file_cannot_honour_is_ignored(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform, caplog
+) -> None:
+    """validate() never runs at construction, so the entity defends itself."""
+    data = {
+        **CLIMATE_PRESET_DEVICE_DATA,
+        "presetBaseline": {
+            "operationMode": "dry",
+            "fanMode": "turbine",
+            "temperature": 40,
+        },
+    }
+    write_device_file("climate", 9023, data)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {**CONFIG, "name": "BB AC", "unique_id": "bb_ac", "device_code": 9023},
+    )
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: "climate.bb_ac", ATTR_PRESET_MODE: "turbo"},
+        blocking=True,
+    )
+
+    state = hass.states.get("climate.bb_ac")
+    # Nothing from the baseline was adopted; the power-bit fallback still applies.
+    assert state.state == HVACMode.COOL
+    assert state.attributes[ATTR_FAN_MODE] == "low"
+    assert state.attributes[ATTR_TEMPERATURE] == 16
+    assert "presetBaseline.operationMode" in caplog.text
 
 
 async def test_temperature_sensor_updates_current_temperature(

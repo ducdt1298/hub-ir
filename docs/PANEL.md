@@ -47,7 +47,8 @@ files (90000 and up), so nothing you record can ever shadow one of the shipped
 device files.
 
 **2 · Describe what it can do.** Temperature range and step, the unit, the
-operation modes, the fan speeds, and swing modes if it has them.
+operation modes, the fan speeds, and swing positions if it has them. See
+[the lists you build by hand](#the-lists-you-build-by-hand) below.
 
 **3 · Say which modes ignore what.** This is the part worth spending a minute on.
 Most units ignore the temperature in *dry* and *fan only*, and many ignore the
@@ -110,6 +111,40 @@ button once.
 | Fan | speeds slowest first, whether it reverses, whether it oscillates |
 | Light | brightness steps, colour temperatures in Kelvin, whether it has a night light |
 | Media player | which buttons exist, and the list of sources or channels |
+| Switch or socket | whether the remote has separate on and off keys, or a single power key that toggles |
+
+A switch is an amplifier, a projector, a bathroom heat lamp — anything only ever
+on or off. **No switch device files are shipped**, so the panel is the only way to
+get one. If the remote has a single power key whose code just alternates, tick
+*One power button that toggles*; the entity then keeps track of which way round it
+is, because sending that code when the device already matches would do the
+opposite of what you asked. See [SWITCH.md](SWITCH.md).
+
+## The lists you build by hand
+
+Fan speeds, swing positions, a fan's speeds, brightness steps, colour
+temperatures, sources, models: each is built one entry at a time. Type it and
+press **Add** or Enter, or click one of the grey suggestion chips underneath. A
+list that is still empty offers a one-click starting point — *Use auto · low ·
+mid · high* — so nobody has to invent names for something that conventional.
+
+Each entry has three controls: **↑** and **↓** to move it, **✕** to remove it.
+
+The arrows are not decoration. **Fan speeds and a fan's speeds are matched
+against the codes you capture by position, not by name** — the first speed in
+your list gets the first code, and so on. Getting them out of order gives you a
+unit that runs on high when Home Assistant asks for low, and nothing will warn
+you. That is why the list is numbered and why the order can be changed.
+
+Entries are refused, out loud, when they would cause trouble later:
+
+| Refused | Why |
+| ------- | --- |
+| a duplicate, ignoring case | `High` and `high` would be two separate keys in the command tree |
+| a name containing `/` | that character separates the levels of a command path, so it would split the key in two |
+| a name containing `,` | commas are no longer how lists are typed |
+| anything but a number, for brightness and colour temperature | the integration compares these numerically |
+| nothing at all | — |
 
 ## Where the files go
 

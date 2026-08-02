@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.hub_ir import frontend as frontend_module
 from custom_components.hub_ir.device_file import (
     CUSTOM_CODE_START,
+    PLATFORMS,
     build_device_file,
     capture_plan,
     codes_from_device_file,
@@ -1290,3 +1291,109 @@ def test_the_panel_module_is_shipped_and_self_contained() -> None:
     assert "http://" not in source
     assert "https://" not in source
     assert "import(" not in source
+
+
+# ---------------------------------------------------------------------------
+# The lists the user builds by hand
+# ---------------------------------------------------------------------------
+
+
+def _panel_source() -> str:
+    """Return the panel module, the only way to check it without a browser."""
+    return (
+        Path(__file__).resolve().parent.parent
+        / "custom_components"
+        / "hub_ir"
+        / "www"
+        / "hub-ir-panel.js"
+    ).read_text(encoding="utf-8")
+
+
+def test_no_list_is_still_edited_as_a_comma_separated_string() -> None:
+    """The regression guard for the whole list editor.
+
+    A comma-separated text field accepted 'low,, high' and silently dropped the
+    hole, took 'High' alongside 'high' as two different keys in the command tree,
+    and gave no way at all to reorder — while the order is exactly what the
+    server matches fan speeds by.
+    """
+    js = _panel_source()
+
+    assert "splitList" not in js, "the comma-splitting helper is back"
+    assert '.join(", ")' not in js, "a list is being rendered into a text field"
+    assert "comma separated" not in js
+    assert "_listEditor(" in js
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "models",
+        "fanModes",
+        "swingModes",
+        "speed",
+        "brightness",
+        "colorTemperature",
+        "sources",
+    ],
+)
+def test_every_hand_built_list_uses_the_one_list_editor(field: str) -> None:
+    """One component, not seven near-copies that drift apart."""
+    js = _panel_source()
+
+    assert f'_listEditor("{field}"' in js
+    assert re.search(rf"^  {field}: {{", js, re.M), f"{field} is not in LIST_FIELDS"
+
+
+def test_only_the_numeric_lists_are_declared_numeric() -> None:
+    """A string '2700' would reach the device file, and light.py compares it.
+
+    Declaring a text list numeric would be worse still: every name typed into it
+    would be refused.
+    """
+    js = _panel_source()
+    block = re.search(r"const LIST_FIELDS = \{(.+?)\n\};", js, re.S).group(1)
+
+    numeric = {
+        name
+        for name, body in re.findall(r"\n  (\w+): \{(.+?)\n  \},", block, re.S)
+        if "numeric: true" in body
+    }
+    assert numeric == {"brightness", "colorTemperature"}
+
+
+def test_the_ordered_lists_say_so() -> None:
+    """Order is what the server matches by, so the UI has to admit it."""
+    js = _panel_source()
+    block = re.search(r"const LIST_FIELDS = \{(.+?)\n\};", js, re.S).group(1)
+
+    ordered = {
+        name
+        for name, body in re.findall(r"\n  (\w+): \{(.+?)\n  \},", block, re.S)
+        if "ordered: true" in body
+    }
+    assert {"fanModes", "swingModes", "speed"} <= ordered
+
+
+def test_a_list_can_be_reordered_and_pruned() -> None:
+    """Without these an entry typed in the wrong place could only be retyped."""
+    js = _panel_source()
+
+    for act in ("add", "remove", "up", "down", "preset", "fill"):
+        assert f'act === "{act}"' in js, f"the list editor cannot {act}"
+
+
+def test_the_panel_offers_every_platform_the_server_knows() -> None:
+    """A platform the server supports but the panel hides cannot be recorded.
+
+    Switch matters most here: no switch device files are shipped at all, so the
+    panel is the only way to get one.
+    """
+    js = _panel_source()
+    block = re.search(r"const PLATFORM_LABELS = \{(.+?)\n\};", js, re.S).group(1)
+    offered = set(re.findall(r"\n  (\w+):", block))
+
+    assert offered == set(PLATFORMS)
+
+    spec_block = re.search(r"const DEFAULT_SPEC = \{(.+?)\n\};", js, re.S).group(1)
+    assert set(re.findall(r"\n  (\w+): \{", spec_block)) == set(PLATFORMS)

@@ -37,12 +37,13 @@ const PLATFORM_LABELS = {
   fan: "Fan",
   light: "Light",
   media_player: "TV / media player",
+  switch: "Switch or socket",
 };
 
 const DEFAULT_SPEC = {
   climate: {
     manufacturer: "",
-    models: "",
+    models: [],
     minTemperature: 16,
     maxTemperature: 30,
     precision: 1,
@@ -52,24 +53,29 @@ const DEFAULT_SPEC = {
     swingModes: [],
     hasOnCommand: false,
     modeOptions: {},
+    presets: [],
+    presetBaseline: {},
+    extraCommands: [],
   },
   fan: {
     manufacturer: "",
-    models: "",
+    models: [],
     speed: ["low", "mid", "high"],
     hasDirection: false,
     hasOscillate: false,
+    extraCommands: [],
   },
   light: {
     manufacturer: "",
-    models: "",
+    models: [],
     brightness: [],
     colorTemperature: [],
     hasNight: false,
+    extraCommands: [],
   },
   media_player: {
     manufacturer: "",
-    models: "",
+    models: [],
     buttons: [
       "on",
       "off",
@@ -80,10 +86,128 @@ const DEFAULT_SPEC = {
       "nextChannel",
     ],
     sources: [],
+    extraCommands: [],
+  },
+  switch: {
+    manufacturer: "",
+    models: [],
+    hasToggle: false,
+    extraCommands: [],
   },
 };
 
 const CLIMATE_MODES = ["cool", "heat", "dry", "fan_only", "auto", "heat_cool"];
+
+/**
+ * Every list the user builds by hand, described once.
+ *
+ * Order is load-bearing for most of these — a climate file's fan speeds and a
+ * fan's speeds are matched against the command tree by position, not by name —
+ * so the editor shows the position and lets it be changed, rather than burying
+ * it in a comma-separated string where a reordering is invisible.
+ *
+ * `fill` is the one-click starting point offered while a list is still empty,
+ * so nobody has to invent names for something as conventional as fan speeds.
+ */
+const LIST_FIELDS = {
+  models: {
+    label: "Models",
+    one: "model",
+    placeholder: "FTKC35",
+    presets: [],
+  },
+  fanModes: {
+    label: "Fan speeds",
+    one: "fan speed",
+    ordered: true,
+    note: "Matched against the codes you capture, in this order.",
+    presets: ["auto", "low", "mid", "medium", "high", "quiet", "turbo"],
+    fill: ["auto", "low", "mid", "high"],
+  },
+  swingModes: {
+    label: "Swing positions",
+    one: "swing position",
+    ordered: true,
+    note: "Leave empty unless the swing setting is part of the unit's packets.",
+    presets: ["auto", "1", "2", "3", "4", "5", "swing", "off"],
+    fill: ["auto", "1", "2", "3"],
+  },
+  speed: {
+    label: "Speeds",
+    one: "speed",
+    ordered: true,
+    note: "Slowest first.",
+    presets: ["low", "mid", "medium", "high", "lowest", "highest"],
+    fill: ["low", "mid", "high"],
+  },
+  brightness: {
+    label: "Brightness steps",
+    one: "step",
+    numeric: true,
+    ordered: true,
+    note: "Dimmest first, on Home Assistant's 1–255 scale.",
+    presets: [10, 64, 128, 192, 255],
+    fill: [10, 128, 255],
+  },
+  colorTemperature: {
+    label: "Colour temperatures",
+    one: "temperature",
+    numeric: true,
+    ordered: true,
+    note: "In kelvin, warmest first.",
+    presets: [2700, 3000, 4000, 5000, 6500],
+    fill: [2700, 4000, 6500],
+  },
+  sources: {
+    label: "Sources and channels",
+    one: "source",
+    presets: ["HDMI1", "HDMI2", "HDMI3", "AV", "TV", "USB"],
+  },
+  presets: {
+    label: "One-touch buttons",
+    one: "button",
+    presets: ["turbo", "eco", "sleep", "quiet", "powerful", "comfort"],
+  },
+  extraCommands: {
+    label: "Other buttons",
+    one: "button",
+    note: "Reachable from the hub_ir.send_command service, by name.",
+    presets: [],
+  },
+};
+
+/** Suggestions for the free-form button list, by what the device is. */
+const EXTRA_PRESETS = {
+  climate: ["display", "beep", "clean", "ionizer", "timer"],
+  fan: ["timer", "natural", "light"],
+  light: ["flash", "scene", "favourite"],
+  media_player: [
+    "menu",
+    "home",
+    "back",
+    "exit",
+    "up",
+    "down",
+    "left",
+    "right",
+    "ok",
+    "info",
+    "guide",
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+  ],
+  switch: ["input_cd", "input_aux", "volume_up", "volume_down"],
+};
+
+const MAX_NAME_LENGTH = 64;
 
 const STYLES = `
   :host { display: block; height: 100%; background: var(--primary-background-color); }
@@ -149,6 +273,21 @@ const STYLES = `
   ul { margin: .4rem 0; padding-left: 1.2rem; font-size: .85rem; }
   a { color: var(--primary-color); }
   summary { cursor: pointer; }
+  .grid.wide { grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+  .list + .list { margin-top: 1rem; }
+  ol.items { margin: .3rem 0 .5rem; padding-left: 1.7rem; font-size: .9rem; }
+  ol.items li { padding: .1rem 0; }
+  .item { display: flex; align-items: center; gap: .5rem; }
+  .item-name { flex: 1 1 auto; overflow-wrap: anywhere; }
+  .item-tools { display: flex; gap: .2rem; flex: 0 0 auto; }
+  button.icon { padding: .15rem .45rem; line-height: 1.1; font-size: .85rem; }
+  .empty { margin: .3rem 0 .5rem; font-style: italic; }
+  .addrow { flex-wrap: nowrap; margin-top: .25rem; }
+  .addrow input { flex: 1 1 auto; min-width: 6rem; }
+  .addrow button { flex: 0 0 auto; }
+  .presets { margin-top: .4rem; }
+  .presets .chip { font-size: .8rem; padding: .2rem .5rem; }
+  .listerr { margin-top: .4rem; }
 `;
 
 class BroadlinkIrPanel extends HTMLElement {
@@ -177,6 +316,12 @@ class BroadlinkIrPanel extends HTMLElement {
       entityName: "",
       creating: false,
       created: null,
+      // Per-list scratch space, none of which is ever sent to the server:
+      // what is currently typed in each add box, the last thing refused and
+      // why, and which input to put the caret back into after a re-render.
+      draft: {},
+      listError: {},
+      focus: null,
     };
   }
 
@@ -288,7 +433,7 @@ class BroadlinkIrPanel extends HTMLElement {
       });
 
       const spec = { ...structuredClone(DEFAULT_SPEC[this._state.platform]), ...result.spec };
-      spec.models = (result.spec.supportedModels || []).join(", ");
+      spec.models = [...(result.spec.supportedModels || [])];
       delete spec.supportedModels;
 
       const kept = Object.keys(result.codes).length;
@@ -319,9 +464,8 @@ class BroadlinkIrPanel extends HTMLElement {
 
   _specForServer() {
     const spec = structuredClone(this._state.spec);
-    spec.supportedModels = String(spec.models || "")
-      .split(",")
-      .map((entry) => entry.trim())
+    spec.supportedModels = (spec.models || [])
+      .map((entry) => String(entry).trim())
       .filter(Boolean);
     delete spec.models;
     return spec;
@@ -468,6 +612,20 @@ class BroadlinkIrPanel extends HTMLElement {
       <header>${LOGO}<h1>HubIR</h1></header>
       <div class="wrap">${this._body()}</div>`;
     this._bind();
+
+    // The add boxes are the only inputs that must survive a deliberate
+    // re-render: Enter clears one and the user carries on typing into it.
+    const focus = this._state.focus;
+    if (focus) {
+      this._state.focus = null;
+      const node = root.getElementById(focus);
+      if (node) {
+        node.focus();
+        if (node.setSelectionRange) {
+          node.setSelectionRange(node.value.length, node.value.length);
+        }
+      }
+    }
   }
 
   _body() {
@@ -521,10 +679,7 @@ class BroadlinkIrPanel extends HTMLElement {
             <label for="manufacturer">Manufacturer</label>
             <input id="manufacturer" value="${esc(s.spec.manufacturer)}" placeholder="Daikin" />
           </div>
-          <div>
-            <label for="models">Models, comma separated</label>
-            <input id="models" value="${esc(s.spec.models)}" placeholder="FTKC35" />
-          </div>
+          <div>${this._listEditor("models")}</div>
         </div>
 
         <p class="muted" style="margin-top:1rem">
@@ -564,6 +719,122 @@ class BroadlinkIrPanel extends HTMLElement {
     `;
   }
 
+  /** Return the description of a list field, with any per-call overrides. */
+  _listConfig(field, options = {}) {
+    return { presets: [], ...LIST_FIELDS[field], ...options };
+  }
+
+  /**
+   * Render one editable, ordered list.
+   *
+   * The add box's contents live in state.draft so a keystroke never re-renders;
+   * every other action does re-render, because a button press has no caret to
+   * lose.
+   */
+  _listEditor(field, options = {}) {
+    const config = this._listConfig(field, options);
+    const list = this._state.spec[field] || [];
+    const error = this._state.listError[field];
+    const addId = `list_add_${field}`;
+
+    // An <ol> rather than a <ul>: the number the user sees is the position the
+    // server will match against, so it is content, not decoration.
+    const items = list.length
+      ? `<ol class="items">${list
+          .map((entry, index) => {
+            const name = esc(entry);
+            return `<li><div class="item">
+              <span class="item-name">${name}</span>
+              <span class="item-tools">
+                <button type="button" class="icon" data-list="${field}" data-act="up"
+                  data-index="${index}" aria-label="Move ${name} up"
+                  ${index === 0 ? "disabled" : ""}>&#8593;</button>
+                <button type="button" class="icon" data-list="${field}" data-act="down"
+                  data-index="${index}" aria-label="Move ${name} down"
+                  ${index === list.length - 1 ? "disabled" : ""}>&#8595;</button>
+                <button type="button" class="icon danger" data-list="${field}"
+                  data-act="remove" data-index="${index}"
+                  aria-label="Remove ${name}">&#10005;</button>
+              </span>
+            </div></li>`;
+          })
+          .join("")}</ol>`
+      : `<p class="muted empty">Nothing yet.</p>`;
+
+    // Only offered while the list is empty, and only when there is a
+    // conventional answer: one click instead of inventing four names.
+    const fill =
+      !list.length && config.fill
+        ? `<span class="chip" role="button" data-list="${field}" data-act="fill"
+             >Use ${config.fill.join(" · ")}</span>`
+        : "";
+
+    // A suggestion already in the list is not rendered at all. Hiding beats
+    // disabling: the row stays short and there is no dead click to explain.
+    const suggestions = config.presets
+      .filter((entry) => !list.some((existing) => String(existing) === String(entry)))
+      .map(
+        (entry) =>
+          `<span class="chip" role="button" data-list="${field}" data-act="preset"
+             data-value="${esc(entry)}">+ ${esc(entry)}</span>`
+      )
+      .join("");
+
+    return `<div class="list">
+      <label for="${addId}">${esc(config.label)}${
+        config.ordered ? ` <span class="muted">— order matters</span>` : ""
+      }</label>
+      ${config.note ? `<p class="muted" style="margin:.1rem 0 .3rem">${esc(config.note)}</p>` : ""}
+      ${items}
+      <div class="row addrow">
+        <input id="${addId}" type="text" autocomplete="off"
+          ${config.numeric ? 'inputmode="numeric"' : ""}
+          placeholder="add a ${esc(config.one)}"
+          value="${esc(this._state.draft[field] || "")}" />
+        <button type="button" data-list="${field}" data-act="add">Add</button>
+      </div>
+      ${fill || suggestions ? `<div class="chips presets">${fill}${suggestions}</div>` : ""}
+      ${error ? `<div class="status error listerr">${esc(error)}</div>` : ""}
+    </div>`;
+  }
+
+  /** Apply an add / remove / reorder / suggestion action to a spec list. */
+  _listAction(field, act, data = {}) {
+    const config = this._listConfig(field, {
+      presets: EXTRA_PRESETS[this._state.platform] || [],
+    });
+    const list = [...(this._state.spec[field] || [])];
+    const index = Number(data.index);
+
+    if (act === "remove") {
+      list.splice(index, 1);
+    } else if (act === "up" && index > 0) {
+      [list[index - 1], list[index]] = [list[index], list[index - 1]];
+    } else if (act === "down" && index < list.length - 1) {
+      [list[index], list[index + 1]] = [list[index + 1], list[index]];
+    } else if (act === "fill") {
+      if (list.length || !config.fill) return;
+      list.push(...config.fill);
+    } else if (act === "add" || act === "preset") {
+      const raw = act === "preset" ? data.value : this._state.draft[field];
+      const outcome = listValue(raw, config, list);
+      if (outcome.error) {
+        this._state.listError[field] = outcome.error;
+        this._state.focus = `list_add_${field}`;
+        this._render();
+        return;
+      }
+      list.push(outcome.value);
+      this._state.draft[field] = "";
+    }
+
+    delete this._state.listError[field];
+    // One rule for every action, including a suggestion chip: the caret goes
+    // back to the add box, so building a list of six feels like typing a list.
+    this._state.focus = `list_add_${field}`;
+    this._setSpec({ [field]: list });
+  }
+
   _specView() {
     const s = this._state;
     if (s.platform === "climate") return this._climateSpecView();
@@ -571,12 +842,7 @@ class BroadlinkIrPanel extends HTMLElement {
     if (s.platform === "fan") {
       return `<div class="card">
         <h2>3 · What can it do?</h2>
-        <div class="grid">
-          <div>
-            <label for="speed">Speeds, slowest first</label>
-            <input id="speed" value="${esc(s.spec.speed.join(", "))}" />
-          </div>
-        </div>
+        ${this._listEditor("speed")}
         <div class="row" style="margin-top:.75rem">
           ${chip("hasDirection", "Reversible", s.spec.hasDirection)}
           ${chip("hasOscillate", "Oscillates", s.spec.hasOscillate)}
@@ -587,18 +853,26 @@ class BroadlinkIrPanel extends HTMLElement {
     if (s.platform === "light") {
       return `<div class="card">
         <h2>3 · What can it do?</h2>
-        <div class="grid">
-          <div>
-            <label for="brightness">Brightness steps (blank if none)</label>
-            <input id="brightness" value="${esc(s.spec.brightness.join(", "))}" placeholder="10, 128, 255" />
-          </div>
-          <div>
-            <label for="colorTemperature">Colour temperatures in K (blank if none)</label>
-            <input id="colorTemperature" value="${esc(s.spec.colorTemperature.join(", "))}" placeholder="2700, 4000, 6500" />
-          </div>
+        <div class="grid wide">
+          <div>${this._listEditor("brightness")}</div>
+          <div>${this._listEditor("colorTemperature")}</div>
         </div>
         <div class="row" style="margin-top:.75rem">
           ${chip("hasNight", "Has a night light", s.spec.hasNight)}
+        </div>
+      </div>`;
+    }
+
+    if (s.platform === "switch") {
+      return `<div class="card">
+        <h2>3 · What can it do?</h2>
+        <p class="muted">
+          Most remotes have separate on and off keys. Some — projectors
+          especially — have a single power key whose code just alternates; tick
+          this and the panel records that one instead.
+        </p>
+        <div class="row">
+          ${chip("hasToggle", "One power button that toggles", s.spec.hasToggle)}
         </div>
       </div>`;
     }
@@ -612,10 +886,7 @@ class BroadlinkIrPanel extends HTMLElement {
           )
           .join("")}
       </div>
-      <div style="margin-top:.75rem">
-        <label for="sources">Sources / channels, comma separated</label>
-        <input id="sources" value="${esc(s.spec.sources.join(", "))}" placeholder="HDMI1, HDMI2, Channel 1" />
-      </div>
+      <div style="margin-top:.75rem">${this._listEditor("sources")}</div>
     </div>`;
   }
 
@@ -648,11 +919,9 @@ class BroadlinkIrPanel extends HTMLElement {
         </div>
       </div>
 
-      <div class="grid" style="margin-top:1rem">
-        <div><label for="fanModes">Fan speeds, comma separated</label>
-          <input id="fanModes" value="${esc(spec.fanModes.join(", "))}" /></div>
-        <div><label for="swingModes">Swing modes (blank if none)</label>
-          <input id="swingModes" value="${esc(spec.swingModes.join(", "))}" /></div>
+      <div class="grid wide" style="margin-top:1rem">
+        <div>${this._listEditor("fanModes")}</div>
+        <div>${this._listEditor("swingModes")}</div>
       </div>
 
       <div class="row" style="margin-top:.75rem">
@@ -915,9 +1184,31 @@ class BroadlinkIrPanel extends HTMLElement {
       this._set({ deviceCode: Number(event.target.value) })
     );
 
-    for (const field of ["manufacturer", "models"]) {
-      on(field, "input", (event) => {
-        this._state.spec[field] = event.target.value;
+    on("manufacturer", "input", (event) => {
+      this._state.spec.manufacturer = event.target.value;
+    });
+
+    // One listener for every list control, however many lists there come to be.
+    // These carry data-list; the older chips carry data-key, so the two
+    // dispatches cannot collide.
+    const wrap = root.querySelector(".wrap");
+    if (wrap) {
+      wrap.addEventListener("click", (event) => {
+        const node = event.target.closest("[data-list][data-act]");
+        if (node) this._listAction(node.dataset.list, node.dataset.act, node.dataset);
+      });
+    }
+
+    for (const field of Object.keys(LIST_FIELDS)) {
+      // No re-render on input: the add box is the one field whose caret has to
+      // survive typing.
+      on(`list_add_${field}`, "input", (event) => {
+        this._state.draft[field] = event.target.value;
+      });
+      on(`list_add_${field}`, "keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        this._listAction(field, "add");
       });
     }
     for (const field of ["minTemperature", "maxTemperature", "precision"]) {
@@ -928,21 +1219,6 @@ class BroadlinkIrPanel extends HTMLElement {
     on("temperatureUnit", "change", (event) =>
       this._setSpec({ temperatureUnit: event.target.value })
     );
-    for (const field of [
-      "fanModes",
-      "swingModes",
-      "speed",
-      "brightness",
-      "colorTemperature",
-      "sources",
-    ]) {
-      on(field, "change", (event) => {
-        const numeric = field === "brightness" || field === "colorTemperature";
-        const list = splitList(event.target.value, numeric);
-        this._setSpec({ [field]: list });
-      });
-    }
-
     for (const node of root.querySelectorAll(".chip[data-key]")) {
       node.addEventListener("click", () => this._toggleChip(node.dataset.key));
     }
@@ -1046,12 +1322,45 @@ function chip(key, label, pressed) {
     aria-pressed="${pressed ? "true" : "false"}">${esc(label)}</span>`;
 }
 
-function splitList(value, numeric) {
-  const parts = String(value)
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  return numeric ? parts.map(Number).filter((entry) => !Number.isNaN(entry)) : parts;
+/**
+ * Normalise one typed entry, or explain why it cannot be added.
+ *
+ * Returns {value} or {error}. Refusing out loud is the point: the field this
+ * replaced accepted "low,, high" and silently dropped the hole, and accepted
+ * "High" alongside "high" as two different keys in the command tree.
+ */
+function listValue(raw, config, list) {
+  const text = String(raw ?? "").trim();
+
+  if (!text) return { error: "Type something first." };
+  if (text.includes("/")) {
+    return {
+      error: "A name cannot contain a slash — it would split the code's key in two.",
+    };
+  }
+  if (text.includes(",")) {
+    return { error: "Add them one at a time; commas are not needed any more." };
+  }
+  if (text.length > MAX_NAME_LENGTH) {
+    return { error: `Keep it under ${MAX_NAME_LENGTH} characters.` };
+  }
+
+  if (config.numeric) {
+    const number = Number(text);
+    if (!Number.isFinite(number)) {
+      return { error: "Numbers only — 2700, not “warm”." };
+    }
+    if (number <= 0) return { error: "Must be a positive number." };
+    if (list.some((entry) => Number(entry) === number)) {
+      return { error: `${number} is already in the list.` };
+    }
+    return { value: number };
+  }
+
+  if (list.some((entry) => String(entry).toLowerCase() === text.toLowerCase())) {
+    return { error: `“${text}” is already in the list.` };
+  }
+  return { value: text };
 }
 
 function slugify(value) {
@@ -1063,7 +1372,7 @@ function slugify(value) {
 
 /** Guess a name from what the user already typed on the identify step. */
 function defaultName(spec, platform) {
-  const model = String(spec.models || "").split(",")[0].trim();
+  const model = String((spec.models || [])[0] ?? "").trim();
   const guess = [String(spec.manufacturer || "").trim(), model]
     .filter(Boolean)
     .join(" ");

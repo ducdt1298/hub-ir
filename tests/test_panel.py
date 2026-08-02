@@ -991,6 +991,63 @@ async def test_saving_cannot_overwrite_a_shipped_device_file(
     assert answer["error"]["code"] == "invalid_format"
 
 
+def _switch_save(device_code: int, manufacturer: str, **extra: Any) -> dict[str, Any]:
+    """Return a save message for a minimal switch file."""
+    return {
+        "type": "hub_ir/save",
+        "platform": "switch",
+        "device_code": device_code,
+        "spec": {"manufacturer": manufacturer, "supportedModels": ["X"]},
+        "codes": {"on": GOOD_CODE, "off": GOOD_CODE},
+        **extra,
+    }
+
+
+async def test_saving_over_your_own_file_needs_permission(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """The panel guesses the next free code once, and that guess goes stale.
+
+    The assertion that matters is the last one: the original is still there, so
+    nothing was clobbered before the refusal.
+    """
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(_switch_save(CUSTOM_CODE_START, "First"))
+    assert (await client.receive_json())["success"]
+
+    await client.send_json_auto_id(_switch_save(CUSTOM_CODE_START, "Second"))
+    answer = await client.receive_json()
+
+    assert not answer["success"]
+    assert answer["error"]["code"] == "already_exists"
+
+    written = json.loads(
+        (panel / "codes" / "switch" / f"{CUSTOM_CODE_START}.json").read_text("utf-8")
+    )
+    assert written["manufacturer"] == "First"
+
+
+async def test_saving_over_your_own_file_is_allowed_when_asked(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """Re-recording a device you already taught is the second commonest path."""
+    client = await hass_ws_client(hass)
+
+    await client.send_json_auto_id(_switch_save(CUSTOM_CODE_START, "First"))
+    assert (await client.receive_json())["success"]
+
+    await client.send_json_auto_id(
+        _switch_save(CUSTOM_CODE_START, "Second", overwrite=True)
+    )
+    assert (await client.receive_json())["success"]
+
+    written = json.loads(
+        (panel / "codes" / "switch" / f"{CUSTOM_CODE_START}.json").read_text("utf-8")
+    )
+    assert written["manufacturer"] == "Second"
+
+
 async def test_learn_over_the_websocket_returns_the_code(
     hass: HomeAssistant, panel, hass_ws_client, broadlink_remote
 ) -> None:
@@ -1381,6 +1438,49 @@ def test_a_list_can_be_reordered_and_pruned() -> None:
 
     for act in ("add", "remove", "up", "down", "preset", "fill"):
         assert f'act === "{act}"' in js, f"the list editor cannot {act}"
+
+
+def test_the_panel_can_capture_presets_and_extra_buttons() -> None:
+    """Without these the two new command groups are hand-edited JSON only."""
+    js = _panel_source()
+
+    assert '_listEditor("presets"' in js
+    assert '_listEditor("extraCommands"' in js
+    # The base state has to be pickable, or every preset is captured from
+    # whatever the remote happened to be showing.
+    for control in ("presetBaseMode", "presetBaseFanMode", "presetBaseTemperature"):
+        assert control in js
+
+
+def test_the_panel_sends_the_toggle_flag_when_learning() -> None:
+    """ws_learn has accepted toggle since it was written; nothing ever sent it.
+
+    So a remote whose button alternates between two packets could not be
+    captured from the UI at all.
+    """
+    js = _panel_source()
+
+    assert re.search(r'type:\s*"hub_ir/learn"[^}]*toggle:', js, re.S)
+
+
+def test_the_panel_asks_before_replacing_a_device_file() -> None:
+    """Saving over one of your own recordings used to happen silently."""
+    js = _panel_source()
+
+    assert re.search(r'type:\s*"hub_ir/save"[^}]*overwrite:', js, re.S)
+    assert "already_exists" in js
+
+
+def test_the_panel_never_invents_the_next_device_code() -> None:
+    """The free code is a fact about the filesystem, and this guessed it.
+
+    'the last code plus one' walked straight over any file the user already had
+    at that number.
+    """
+    js = _panel_source()
+
+    assert "(this._state.deviceCode || 0) + 1" not in js
+    assert "_refreshNextCode" in js
 
 
 def test_the_panel_offers_every_platform_the_server_knows() -> None:

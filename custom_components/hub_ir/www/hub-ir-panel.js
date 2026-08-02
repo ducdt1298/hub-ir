@@ -322,6 +322,11 @@ class BroadlinkIrPanel extends HTMLElement {
       draft: {},
       listError: {},
       focus: null,
+      // A capture-session setting, deliberately not in spec so it can never
+      // reach build_device_file.
+      toggle: false,
+      // Permission to replace a device file that already exists.
+      overwrite: false,
     };
   }
 
@@ -468,6 +473,18 @@ class BroadlinkIrPanel extends HTMLElement {
       .map((entry) => String(entry).trim())
       .filter(Boolean);
     delete spec.models;
+
+    if (this._state.platform === "climate") {
+      // A preset has to be captured from a state that can be named, so drop
+      // them entirely if the lists they refer to have been emptied since.
+      if (!(spec.operationModes || []).length || !(spec.fanModes || []).length) {
+        spec.presets = [];
+      }
+      // Send the resolved baseline rather than whatever was last clicked, so
+      // the capture labels and the saved file cannot disagree.
+      spec.presetBaseline = spec.presets.length ? this._presetBaseline() : {};
+    }
+
     return spec;
   }
 
@@ -488,6 +505,7 @@ class BroadlinkIrPanel extends HTMLElement {
         const { code } = await this._call({
           type: "hub_ir/learn",
           remote_entity_id: this._state.remote,
+          toggle: this._state.toggle,
         });
         this._state.codes[target.key] = code;
         delete this._state.skipped[target.key];
@@ -564,6 +582,7 @@ class BroadlinkIrPanel extends HTMLElement {
         device_code: this._state.deviceCode,
         spec: this._specForServer(),
         codes: this._state.codes,
+        overwrite: this._state.overwrite,
       });
       this._set({
         step: "saved",
@@ -576,7 +595,38 @@ class BroadlinkIrPanel extends HTMLElement {
         created: null,
       });
     } catch (err) {
-      this._set({ status: { kind: "error", text: describe(err) } });
+      const text =
+        err && err.code === "already_exists"
+          ? `${describe(err)}. Tick “Replace the existing file”, or pick another ` +
+            `device code on the settings step.`
+          : describe(err);
+      this._set({ status: { kind: "error", text } });
+    }
+  }
+
+  /** True when saving now would replace one of the user's own recordings. */
+  _wouldOverwrite() {
+    return this._state.customCodes.includes(Number(this._state.deviceCode));
+  }
+
+  /** Warn, and offer permission, when the chosen code is already taken. */
+  _overwriteWarning() {
+    if (!this._wouldOverwrite()) return "";
+    return `<div class="status error">Device code ${esc(
+      this._state.deviceCode
+    )} already exists. Saving replaces it.</div>
+      <div class="row" style="margin-top:.5rem">
+        ${chip("overwrite", "Replace the existing file", this._state.overwrite)}
+      </div>`;
+  }
+
+  /** Re-ask which code is free; the answer goes stale as soon as one is saved. */
+  async _refreshNextCode() {
+    try {
+      const info = await this._call({ type: "hub_ir/info" });
+      this._state.nextCode = info.next_code;
+    } catch {
+      // Keep the previous guess rather than losing the screen over it.
     }
   }
 
@@ -636,11 +686,12 @@ class BroadlinkIrPanel extends HTMLElement {
 
   _setupView() {
     const s = this._state;
+    this._cardNumber = 0;
     const learnable = s.remotes.filter((r) => r.can_learn);
 
     return `
       <div class="card">
-        <h2>1 · What are you teaching?</h2>
+        <h2>${this._step("What are you teaching?")}</h2>
         <div class="grid">
           <div>
             <label for="platform">Device type</label>
@@ -670,10 +721,11 @@ class BroadlinkIrPanel extends HTMLElement {
             : `<div class="status error">No Broadlink remote found. Set up the
                Broadlink integration first — only its remotes can learn codes.</div>`
         }
+        ${this._overwriteWarning()}
       </div>
 
       <div class="card">
-        <h2>2 · Identify it</h2>
+        <h2>${this._step("Identify it")}</h2>
         <div class="grid">
           <div>
             <label for="manufacturer">Manufacturer</label>
@@ -709,6 +761,8 @@ class BroadlinkIrPanel extends HTMLElement {
       </div>
 
       ${this._specView()}
+      ${this._presetCard()}
+      ${this._extrasCard()}
 
       <div class="row">
         <button class="primary" id="plan" ${learnable.length ? "" : "disabled"}>
@@ -717,6 +771,147 @@ class BroadlinkIrPanel extends HTMLElement {
       </div>
       ${this._statusView()}
     `;
+  }
+
+  /**
+   * Number the setup cards in the order they are rendered.
+   *
+   * Rendering is one synchronous pass, so a counter is safe, and it keeps the
+   * headings from drifting out of step with PANEL.md the next time a card is
+   * added or made conditional.
+   */
+  _step(title) {
+    this._cardNumber = (this._cardNumber || 0) + 1;
+    return `${this._cardNumber} · ${esc(title)}`;
+  }
+
+  /**
+   * The one-touch buttons: Turbo, Eco, Sleep. Climate only.
+   *
+   * A standing explanation, not just a note on each capture screen. The screen
+   * can say *what* state to dial in; it cannot say why the panel is asking, and
+   * somebody who does not understand why will leave the remote on whatever it
+   * happens to show and record a Turbo code that silently drags the unit to
+   * 30°C every time it fires.
+   */
+  _presetCard() {
+    const s = this._state;
+    if (s.platform !== "climate") return "";
+
+    const modes = s.spec.operationModes || [];
+    const fanModes = s.spec.fanModes || [];
+
+    if (!modes.length || !fanModes.length) {
+      return `<div class="card">
+        <h2>${this._step("One-touch buttons")}</h2>
+        <div class="status error">
+          Choose at least one operation mode and one fan speed first — a
+          one-touch button has to be recorded from a state you can name.
+        </div>
+      </div>`;
+    }
+
+    const baseline = this._presetBaseline();
+    const option = (value, selected) =>
+      `<option value="${esc(value)}"${
+        String(value) === String(selected) ? " selected" : ""
+      }>${esc(value)}</option>`;
+
+    return `<div class="card">
+      <h2>${this._step("One-touch buttons (Turbo, Eco, Sleep)")}</h2>
+      <p class="muted">
+        On most air conditioners these do <strong>not</strong> send a small
+        &ldquo;turbo on&rdquo; packet. They send the unit&rsquo;s whole state
+        &mdash; mode, fan speed and temperature &mdash; with one extra bit
+        flipped. So the code you record here will always put the unit back into
+        whichever state the remote was showing when you pressed it. Pick that
+        state once, below; the panel puts it on every capture screen and writes
+        it into the device file, so nobody has to guess later.
+      </p>
+      <div class="grid" style="margin-top:.75rem">
+        <div>
+          <label for="presetBaseMode">Record them from this mode</label>
+          <select id="presetBaseMode">
+            ${modes.map((mode) => option(mode, baseline.operationMode)).join("")}
+          </select>
+        </div>
+        <div>
+          <label for="presetBaseFanMode">…this fan speed</label>
+          <select id="presetBaseFanMode">
+            ${fanModes.map((fan) => option(fan, baseline.fanMode)).join("")}
+          </select>
+        </div>
+        <div>
+          <label for="presetBaseTemperature">…and this temperature</label>
+          <input id="presetBaseTemperature" type="number" step="${s.spec.precision}"
+            min="${s.spec.minTemperature}" max="${s.spec.maxTemperature}"
+            value="${baseline.temperature}" />
+        </div>
+      </div>
+      <div style="margin-top:1rem">${this._listEditor("presets")}</div>
+    </div>`;
+  }
+
+  /** The base state presets are captured from, filled in the way the server would. */
+  _presetBaseline() {
+    const spec = this._state.spec;
+    const declared = spec.presetBaseline || {};
+    const modes = spec.operationModes || [];
+    const fanModes = spec.fanModes || [];
+
+    const steps = [];
+    for (
+      let value = spec.minTemperature;
+      value <= spec.maxTemperature;
+      value = Math.round((value + spec.precision) * 100) / 100
+    ) {
+      steps.push(value);
+    }
+
+    return {
+      operationMode: modes.includes(declared.operationMode)
+        ? declared.operationMode
+        : modes[0],
+      fanMode: fanModes.includes(declared.fanMode) ? declared.fanMode : fanModes[0],
+      // The middle step, matching the server: nobody dials an air conditioner
+      // down to 16°C to record a preset.
+      temperature: steps.includes(declared.temperature)
+        ? declared.temperature
+        : steps[Math.floor(steps.length / 2)],
+    };
+  }
+
+  /** Describe the preset base state the way the capture labels spell it. */
+  _presetBaseLabel() {
+    const baseline = this._presetBaseline();
+    const unit = this._state.spec.temperatureUnit === "F" ? "°F" : "°C";
+    return [
+      baseline.operationMode,
+      baseline.fanMode,
+      `${baseline.temperature}${unit}`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  /** Free-form buttons, for every platform. */
+  _extrasCard() {
+    const s = this._state;
+    return `<div class="card">
+      <h2>${this._step("Any other buttons")}</h2>
+      <p class="muted">
+        Anything else on the remote &mdash; a menu key, the arrows, the digits, an
+        LED toggle, a favourite input. These are not wired to the entity&rsquo;s
+        normal controls; they are reachable by name from the
+        <code>hub_ir.send_command</code> service and from scripts. Short
+        lower-case names travel best.
+      </p>
+      <div style="margin-top:.75rem">
+        ${this._listEditor("extraCommands", {
+          presets: EXTRA_PRESETS[s.platform] || [],
+        })}
+      </div>
+    </div>`;
   }
 
   /** Return the description of a list field, with any per-call overrides. */
@@ -841,7 +1036,7 @@ class BroadlinkIrPanel extends HTMLElement {
 
     if (s.platform === "fan") {
       return `<div class="card">
-        <h2>3 · What can it do?</h2>
+        <h2>${this._step("What can it do?")}</h2>
         ${this._listEditor("speed")}
         <div class="row" style="margin-top:.75rem">
           ${chip("hasDirection", "Reversible", s.spec.hasDirection)}
@@ -852,7 +1047,7 @@ class BroadlinkIrPanel extends HTMLElement {
 
     if (s.platform === "light") {
       return `<div class="card">
-        <h2>3 · What can it do?</h2>
+        <h2>${this._step("What can it do?")}</h2>
         <div class="grid wide">
           <div>${this._listEditor("brightness")}</div>
           <div>${this._listEditor("colorTemperature")}</div>
@@ -865,7 +1060,7 @@ class BroadlinkIrPanel extends HTMLElement {
 
     if (s.platform === "switch") {
       return `<div class="card">
-        <h2>3 · What can it do?</h2>
+        <h2>${this._step("What can it do?")}</h2>
         <p class="muted">
           Most remotes have separate on and off keys. Some — projectors
           especially — have a single power key whose code just alternates; tick
@@ -878,7 +1073,7 @@ class BroadlinkIrPanel extends HTMLElement {
     }
 
     return `<div class="card">
-      <h2>3 · What can it do?</h2>
+      <h2>${this._step("What can it do?")}</h2>
       <div class="chips">
         ${["on", "off", "volumeUp", "volumeDown", "mute", "previousChannel", "nextChannel"]
           .map((name) =>
@@ -895,7 +1090,7 @@ class BroadlinkIrPanel extends HTMLElement {
     const modes = spec.operationModes;
 
     return `<div class="card">
-      <h2>3 · Temperatures and modes</h2>
+      <h2>${this._step("Temperatures and modes")}</h2>
       <div class="grid">
         <div><label for="minTemperature">Minimum</label>
           <input id="minTemperature" type="number" step="any" value="${spec.minTemperature}" /></div>
@@ -971,6 +1166,14 @@ class BroadlinkIrPanel extends HTMLElement {
                <p class="muted">${done + skipped} of ${total} · ${esc(current.group)}</p>`
             : `<div class="target">All ${total} codes accounted for</div>`
         }
+        ${
+          current && current.group === "Presets"
+            ? `<div class="status ok">This one carries the unit's whole state, so
+                 set the remote back to <strong>${esc(
+                   this._presetBaseLabel()
+                 )}</strong> before you press it.</div>`
+            : ""
+        }
         <div class="bar"><div style="width:${percent}%"></div></div>
         <div class="cells">
           ${s.cells
@@ -994,6 +1197,20 @@ class BroadlinkIrPanel extends HTMLElement {
           <button id="skip" ${s.running || !current ? "disabled" : ""}>Skip</button>
           <button id="test" ${s.running ? "disabled" : ""}>Test last code</button>
         </div>
+        <div class="row" style="margin-top:.6rem">
+          ${chip("toggle", "Two-packet button", s.toggle)}
+        </div>
+        ${
+          s.toggle
+            ? `<p class="muted" style="margin-top:.4rem">
+                 Some remotes alternate between two packets for the same button —
+                 a Samsung power key is the usual one. The panel asks the
+                 Broadlink for both and stores them as a pair; the integration
+                 sends them in turn. Leave this off unless a captured code only
+                 works every other press.
+               </p>`
+            : ""
+        }
         ${
           s.running
             ? `<p class="muted" style="margin-top:.75rem">
@@ -1005,9 +1222,12 @@ class BroadlinkIrPanel extends HTMLElement {
         ${this._statusView()}
       </div>
 
+      ${this._overwriteWarning()}
       <div class="row">
         <button id="back">Back to the settings</button>
-        <button class="primary" id="save" ${done ? "" : "disabled"}>
+        <button class="primary" id="save" ${
+          done && !(this._wouldOverwrite() && !s.overwrite) ? "" : "disabled"
+        }>
           Save as device code ${s.deviceCode}
         </button>
       </div>
@@ -1174,14 +1394,19 @@ class BroadlinkIrPanel extends HTMLElement {
         status: null,
         entityName: "",
         created: null,
+        toggle: false,
+        overwrite: false,
       });
       this._render();
       await this._refreshCustomCodes();
+      await this._refreshNextCode();
+      this._state.deviceCode = this._state.nextCode[platform];
       this._render();
     });
     on("remote", "change", (event) => this._set({ remote: event.target.value }));
+    // Changing the number withdraws any permission given for the old one.
     on("device_code", "change", (event) =>
-      this._set({ deviceCode: Number(event.target.value) })
+      this._set({ deviceCode: Number(event.target.value), overwrite: false })
     );
 
     on("manufacturer", "input", (event) => {
@@ -1219,6 +1444,22 @@ class BroadlinkIrPanel extends HTMLElement {
     on("temperatureUnit", "change", (event) =>
       this._setSpec({ temperatureUnit: event.target.value })
     );
+
+    // The base state presets are captured from. Stored as one object so the
+    // server receives it the same shape it writes into the device file.
+    for (const [id, key] of [
+      ["presetBaseMode", "operationMode"],
+      ["presetBaseFanMode", "fanMode"],
+      ["presetBaseTemperature", "temperature"],
+    ]) {
+      on(id, "change", (event) => {
+        const value =
+          key === "temperature" ? Number(event.target.value) : event.target.value;
+        this._setSpec({
+          presetBaseline: { ...this._presetBaseline(), [key]: value },
+        });
+      });
+    }
     for (const node of root.querySelectorAll(".chip[data-key]")) {
       node.addEventListener("click", () => this._toggleChip(node.dataset.key));
     }
@@ -1278,16 +1519,22 @@ class BroadlinkIrPanel extends HTMLElement {
         index: 0,
         saved: null,
         templateCode: "",
-        deviceCode: (this._state.deviceCode || 0) + 1,
         entityName: "",
         creating: false,
         created: null,
+        toggle: false,
+        overwrite: false,
         // Never cleared before, so a failed create would follow the user back
         // to a fresh setup screen as a red box about nothing.
         status: null,
       });
-      // The recording just saved should show up in the list straight away.
+      // The recording just saved should show up in the list straight away, and
+      // the free code is a fact about the filesystem rather than the last code
+      // plus one — which is what this used to guess, straight over any file the
+      // user already had at that number.
       await this._refreshCustomCodes();
+      await this._refreshNextCode();
+      this._state.deviceCode = this._state.nextCode[this._state.platform];
       this._render();
     });
   }
@@ -1310,6 +1557,9 @@ class BroadlinkIrPanel extends HTMLElement {
       const options = { ...(spec.modeOptions[value] || {}) };
       options[kind] = options[kind] === false;
       spec.modeOptions = { ...spec.modeOptions, [value]: options };
+    } else if (kind === "toggle" || kind === "overwrite") {
+      // Session settings, not part of the spec: the final `else` writes into it.
+      this._state[kind] = !this._state[kind];
     } else {
       spec[kind] = !spec[kind];
     }

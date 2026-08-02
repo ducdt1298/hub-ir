@@ -239,6 +239,7 @@ async def ws_get(
         vol.Required("device_code"): vol.All(int, vol.Range(min=CUSTOM_CODE_START)),
         vol.Required("spec"): dict,
         vol.Required("codes"): dict,
+        vol.Optional("overwrite", default=False): bool,
     }
 )
 @websocket_api.async_response
@@ -250,7 +251,9 @@ async def ws_save(
     """Assemble, validate and write a device file.
 
     The device code is constrained to the user's own range by the schema above,
-    so saving can never overwrite one of the shipped files.
+    so saving can never overwrite one of the shipped files. Replacing one of the
+    user's own needs asking for: the panel guesses the next free code once, at
+    load, and that guess goes stale as soon as anything is saved.
     """
     platform, device_code = msg["platform"], msg["device_code"]
 
@@ -269,6 +272,16 @@ async def ws_save(
 
     path = device_file_path(platform, device_code)
     payload = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+
+    if not msg["overwrite"] and await hass.async_add_executor_job(os.path.exists, path):
+        # Only this side sees the filesystem at the moment of writing, so this is
+        # the guarantee; the panel's warning is only a warning.
+        connection.send_error(
+            msg["id"],
+            "already_exists",
+            f"Device code {device_code} already exists for {platform}",
+        )
+        return
 
     def _write() -> None:
         os.makedirs(os.path.dirname(path), 0o777, exist_ok=True)

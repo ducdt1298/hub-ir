@@ -55,7 +55,15 @@ Most units ignore the temperature in *dry* and *fan only*, and many ignore the
 fan speed there too. Saying so turns 180 captures into around 120, and the panel
 writes the one captured code everywhere it applies, so nothing is lost.
 
-**4 · Capture.** The panel shows one target at a time — `cool · low · 16°C` —
+**4 · One-touch buttons.** Turbo, Eco, Sleep, Quiet — see
+[below](#one-touch-buttons-turbo-eco-sleep), because these need one decision
+made before you press anything.
+
+**5 · Any other buttons.** Anything the entity cannot express: an LED toggle, a
+beep, a filter reset. These are not wired to a control; they are reachable by
+name from [`hub_ir.send_command`](SERVICES.md).
+
+**6 · Capture.** The panel shows one target at a time — `cool · low · 16°C` —
 in the order the buttons sit on your remote: temperature innermost and
 ascending. Press *Start capturing*, set your remote to the target, and press
 send. The moment a code arrives the panel moves to the next target on its own.
@@ -72,7 +80,12 @@ Each code times out after 30 seconds. Alongside:
 - **Stop** ends the run; your progress stays, and you can save at any point and
   come back to it.
 
-**5 · Save, then add it.** The file is validated with exactly the same rules as
+- **Two-packet button** is for a remote whose button alternates between two
+  packets — a Samsung power key is the usual one. Symptom: a captured code works
+  every *other* press. Tick it and the panel asks the Broadlink for both and
+  stores them as a pair.
+
+**7 · Save, then add it.** The file is validated with exactly the same rules as
 `scripts/validate_codes.py` before anything is written, so it cannot produce an
 entity the integration would choke on.
 
@@ -119,6 +132,40 @@ get one. If the remote has a single power key whose code just alternates, tick
 *One power button that toggles*; the entity then keeps track of which way round it
 is, because sending that code when the device already matches would do the
 opposite of what you asked. See [SWITCH.md](SWITCH.md).
+
+## One-touch buttons (Turbo, Eco, Sleep)
+
+Worth reading before you record these, because getting it wrong is silent.
+
+On most air conditioners Turbo does **not** send a small "turbo on" packet. It
+sends the unit's whole state — mode, fan speed, temperature — with one extra bit
+flipped. So the code you record will always put the unit back into whichever
+state the remote was showing when you pressed it. Record Turbo while the remote
+happens to be on 30°C and every Turbo from Home Assistant afterwards drags the
+room to 30°C.
+
+So the panel asks you to pick that state **once**: a mode, a fan speed and a
+temperature. It then shows the same state on every preset's capture screen, and
+writes it into the device file as `presetBaseline`, so the entity can report what
+the code actually commanded instead of leaving Home Assistant showing a
+temperature the unit is not on.
+
+Two or three extra presses of the remote, and the whole group is done — presets
+are a flat list, not another dimension of the matrix.
+
+There is no "turbo off" code, because remotes do not have one. Selecting `none`,
+or changing the mode, fan speed, swing or temperature, re-sends the ordinary
+state frame, and that is what clears the preset. See
+[CLIMATE.md](CLIMATE.md#one-touch-buttons-turbo-eco-sleep-quiet).
+
+## Replacing a file you already recorded
+
+The device code is filled in with the first free one in your range. If you point
+it at a code you have already used, the panel says so and **Save** stays disabled
+until you tick *Replace the existing file*. The server refuses too, so a second
+browser tab cannot slip past the warning.
+
+Codes below 90000 belong to the shipped database and cannot be written at all.
 
 ## The lists you build by hand
 

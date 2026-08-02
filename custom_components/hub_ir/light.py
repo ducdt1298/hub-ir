@@ -191,9 +191,13 @@ class HubIRLight(LightEntity, RestoreEntity):
             ) is not None:
                 self._colortemp = colortemp
 
+        # Tracked through async_on_remove so a reload does not leave the old
+        # listener answering as well.
         if self._power_sensor:
-            async_track_state_change_event(
-                self.hass, self._power_sensor, self._async_power_sensor_changed
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, self._power_sensor, self._async_power_sensor_changed
+                )
             )
 
     @property

@@ -52,6 +52,12 @@ FAHRENHEIT_THRESHOLD = 40
 # these prefixes count as annotations.
 ANNOTATION_PREFIXES = ("_", "$")
 
+# Keys at the top of a command tree that are never an operation mode. climate.py
+# walks the tree by position and substitutes a sibling when the mode it wants is
+# missing, so without this it could hand back the 'off' code — or, once groups
+# like 'presets' exist, a whole dict that then gets walked as a fan-mode level.
+RESERVED_COMMAND_KEYS = frozenset({"on", "off"})
+
 # Broadlink packet types: 0x26 is IR, the rest are the RF variants.
 PACKET_IR = 0x26
 PACKET_TYPES = (PACKET_IR, 0xB0, 0xB1, 0xB2, 0xD7)

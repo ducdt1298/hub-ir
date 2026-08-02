@@ -23,6 +23,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .conftest import CLIMATE_DEVICE_DATA, get_entity, payloads
 
@@ -261,6 +262,118 @@ async def test_power_sensor_on_never_yields_invalid_state(
     state = hass.states.get("climate.p_ac")
     assert state.state == HVACMode.OFF
     assert state.attributes["on_by_remote"] is False
+
+
+@pytest.mark.parametrize(
+    ("restore_state", "expected"),
+    [(True, HVACMode.HEAT), (False, HVACMode.COOL)],
+)
+async def test_power_sensor_restore_state_decides_the_mode_guessed(
+    hass: HomeAssistant,
+    write_device_file,
+    sent_commands,
+    setup_platform,
+    restore_state: bool,
+    expected: HVACMode,
+) -> None:
+    """The option has to change the guess, or it is not an option.
+
+    Both arms of this branch used to compute the same value, so the documented
+    setting did nothing at all. 'cool' is the first mode the file offers and
+    'heat' is the one the unit last ran in, so the two answers differ.
+    """
+    write_device_file("climate", 9013, CLIMATE_DEVICE_DATA)
+    hass.states.async_set("binary_sensor.r_power", STATE_OFF)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {
+            **CONFIG,
+            "name": "R AC",
+            "unique_id": "r_ac",
+            "device_code": 9013,
+            "power_sensor": "binary_sensor.r_power",
+            "power_sensor_restore_state": restore_state,
+        },
+    )
+
+    # Run in heat, then switch off, so last_on_operation is not the first mode.
+    for mode in (HVACMode.HEAT, HVACMode.OFF):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_HVAC_MODE,
+            {ATTR_ENTITY_ID: "climate.r_ac", ATTR_HVAC_MODE: mode},
+            blocking=True,
+        )
+
+    hass.states.async_set("binary_sensor.r_power", STATE_ON)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("climate.r_ac")
+    assert state.state == expected
+    assert state.attributes["on_by_remote"] is True
+
+
+async def test_a_missing_mode_never_substitutes_a_reserved_key(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform
+) -> None:
+    """Falling back to 'off' would switch the unit off while reporting cool.
+
+    _select substitutes a sibling when the mode it wants is absent, and 'on'
+    and 'off' sit in the same dict as the modes. hvac_modes here is
+    [off, cool, heat], so a request for 'cool' is one step from both 'off' and
+    'heat': _nearest_key breaks that tie on position, and 'off' is written
+    first in every device file. Excluding the power codes is what keeps the
+    substitution among actual modes.
+    """
+    data = {
+        **CLIMATE_DEVICE_DATA,
+        "commands": {
+            "off": "b2Zm",
+            "heat": {"low": {"16": "aGVhdDE2", "17": "aGVhdDE3"}},
+        },
+    }
+    write_device_file("climate", 9014, data)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {**CONFIG, "name": "S AC", "unique_id": "s_ac", "device_code": 9014},
+    )
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {ATTR_ENTITY_ID: "climate.s_ac", ATTR_HVAC_MODE: HVACMode.COOL},
+        blocking=True,
+    )
+
+    assert payloads(sent_commands) == [["b64:aGVhdDE2"]]
+    assert hass.states.get("climate.s_ac").state == HVACMode.COOL
+
+
+async def test_a_mode_with_nothing_to_fall_back_on_raises(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform
+) -> None:
+    """Sending the power code would be worse than admitting the file is short."""
+    data = {
+        **CLIMATE_DEVICE_DATA,
+        "operationModes": ["cool"],
+        "commands": {"off": "b2Zm", "on": "b24="},
+    }
+    write_device_file("climate", 9015, data)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {**CONFIG, "name": "T AC", "unique_id": "t_ac", "device_code": 9015},
+    )
+
+    with pytest.raises(HomeAssistantError, match="no operation mode to select"):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_HVAC_MODE,
+            {ATTR_ENTITY_ID: "climate.t_ac", ATTR_HVAC_MODE: HVACMode.COOL},
+            blocking=True,
+        )
+
+    assert payloads(sent_commands) == []
+    assert hass.states.get("climate.t_ac").state == HVACMode.OFF
 
 
 async def test_temperature_sensor_updates_current_temperature(

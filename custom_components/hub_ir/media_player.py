@@ -244,9 +244,13 @@ class HubIRMediaPlayer(MediaPlayerEntity, RestoreEntity):
             elif last_state.state == STATE_OFF:
                 self._state = MediaPlayerState.OFF
 
+        # Tracked through async_on_remove so a reload does not leave the old
+        # listener answering as well.
         if self._power_sensor:
-            async_track_state_change_event(
-                self.hass, self._power_sensor, self._async_power_sensor_changed
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, self._power_sensor, self._async_power_sensor_changed
+                )
             )
 
             # The sensor is the source of truth, so adopt its current reading

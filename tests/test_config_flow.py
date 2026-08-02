@@ -639,6 +639,49 @@ async def test_unloading_an_entry_makes_its_entity_unavailable(
     assert "restored" not in state.attributes
 
 
+def _sensor_listeners(hass: HomeAssistant, entity_id: str) -> int:
+    """Return how many callbacks are tracking an entity's state changes.
+
+    Reaches into Home Assistant's own tracker because the leak has no other
+    symptom: a listener nobody cancelled keeps firing into a removed entity,
+    which is silent until it writes a state that no longer has an owner.
+    """
+    tracker = hass.data.get("track_state_change_data")
+    return len(tracker.callbacks.get(entity_id, [])) if tracker else 0
+
+
+async def test_reloading_an_entry_does_not_stack_sensor_listeners(
+    hass: HomeAssistant, add_entry
+) -> None:
+    """The options flow reloads on every Save, so a leak here grows all day."""
+    hass.states.async_set("sensor.room", "21")
+    entry = await add_entry(
+        "climate",
+        9700,
+        CLIMATE_DEVICE_DATA,
+        options={
+            "controller_data": REMOTE,
+            "delay": 0.5,
+            "temperature_sensor": "sensor.room",
+            "power_sensor": "binary_sensor.ac",
+        },
+    )
+
+    assert _sensor_listeners(hass, "sensor.room") == 1
+
+    for _ in range(3):
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert _sensor_listeners(hass, "sensor.room") == 1
+    assert _sensor_listeners(hass, "binary_sensor.ac") == 1
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert _sensor_listeners(hass, "sensor.room") == 0
+    assert _sensor_listeners(hass, "binary_sensor.ac") == 0
+
+
 async def test_removing_an_entry_removes_its_device(
     hass: HomeAssistant, add_entry
 ) -> None:

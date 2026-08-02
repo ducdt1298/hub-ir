@@ -46,7 +46,7 @@ from . import (
 )
 from .const import CONF_DEVICE_INFO
 from .controller import get_controller
-from .device_file import ANNOTATION_PREFIXES
+from .device_file import ANNOTATION_PREFIXES, RESERVED_COMMAND_KEYS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -233,9 +233,13 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
             ) in self._operation_modes:
                 self._last_on_operation = last_on_operation
 
+        # Tracked through async_on_remove: the options flow reloads the entry on
+        # every Save, and a listener left behind would keep answering afterwards.
         if self._temperature_sensor:
-            async_track_state_change_event(
-                self.hass, self._temperature_sensor, self._async_temp_sensor_changed
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, self._temperature_sensor, self._async_temp_sensor_changed
+                )
             )
 
             temp_sensor_state = self.hass.states.get(self._temperature_sensor)
@@ -243,8 +247,12 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
                 self._async_update_temp(temp_sensor_state)
 
         if self._humidity_sensor:
-            async_track_state_change_event(
-                self.hass, self._humidity_sensor, self._async_humidity_sensor_changed
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    self._humidity_sensor,
+                    self._async_humidity_sensor_changed,
+                )
             )
 
             humidity_sensor_state = self.hass.states.get(self._humidity_sensor)
@@ -252,8 +260,10 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
                 self._async_update_humidity(humidity_sensor_state)
 
         if self._power_sensor:
-            async_track_state_change_event(
-                self.hass, self._power_sensor, self._async_power_sensor_changed
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, self._power_sensor, self._async_power_sensor_changed
+                )
             )
 
     def _restore_temperature(self, temperature: float) -> float:
@@ -495,10 +505,9 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
         ignores fan speed and temperature there. Walk down as far as the file
         goes and use the first code found.
         """
-        node = _select(
+        node = _select_operation_mode(
             self._commands,
             self._hvac_mode,
-            "operation mode",
             self._device_code,
             self._operation_modes,
         )
@@ -568,11 +577,13 @@ class HubIRClimate(ClimateEntity, RestoreEntity):
         if new_state.state == STATE_ON and self._hvac_mode == HVACMode.OFF:
             self._on_by_remote = True
             # 'on' is not a valid hvac_mode, so guess the real one: HA rejects
-            # any state that is not in hvac_modes.
-            if self._power_sensor_restore_state and self._last_on_operation:
-                self._hvac_mode = self._last_on_operation
-            else:
+            # any state that is not in hvac_modes. With power_sensor_restore_state
+            # the guess is the mode the unit last ran in; without it the entity
+            # reports the first mode the file offers and claims to know no more.
+            if self._power_sensor_restore_state:
                 self._hvac_mode = self._last_on_operation or self._operation_modes[1]
+            else:
+                self._hvac_mode = self._operation_modes[1]
             self.async_write_ha_state()
 
         if new_state.state == STATE_OFF:
@@ -657,6 +668,36 @@ def _select(
         )
 
     return value
+
+
+def _select_operation_mode(
+    commands: dict[str, Any],
+    hvac_mode: str,
+    device_code: int,
+    order: list[str],
+) -> Any:
+    """Return the command subtree for an operation mode.
+
+    The power codes live in the same dict as the modes, so they are removed
+    before _select is allowed to substitute: hvac_modes puts 'off' first, which
+    makes it one step from whichever mode is listed next, and _nearest_key
+    breaks that tie on position. Falling back to it would switch the unit off
+    while the entity reported a running mode. Command groups that are not modes
+    either — 'presets', 'extras' — would be worse still, because a whole dict
+    would then be walked as if it were the fan-mode level.
+    """
+    modes = {
+        name: value
+        for name, value in commands.items()
+        if name not in RESERVED_COMMAND_KEYS
+    }
+    if not modes:
+        raise HomeAssistantError(
+            f"Device code {device_code} has no operation mode to select "
+            f"{hvac_mode!r} from"
+        )
+
+    return _select(modes, hvac_mode, "operation mode", device_code, order)
 
 
 def _nearest_key(candidates: dict[str, Any], key: str, order: list[str] | None) -> str:

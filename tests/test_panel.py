@@ -14,11 +14,17 @@ from pathlib import Path
 import re
 from typing import Any
 from unittest.mock import patch
+from urllib.parse import unquote_plus
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.hub_ir import frontend as frontend_module
+from custom_components.hub_ir import (
+    CODES_BASE_URL,
+    REPO_SLUG,
+    REPO_URL,
+    frontend as frontend_module,
+)
 from custom_components.hub_ir.device_file import (
     CUSTOM_CODE_START,
     PLATFORMS,
@@ -1048,6 +1054,135 @@ async def test_saving_over_your_own_file_is_allowed_when_asked(
     assert written["manufacturer"] == "Second"
 
 
+# ---------------------------------------------------------------------------
+# Getting a recording off the machine
+# ---------------------------------------------------------------------------
+
+
+async def test_export_hands_back_the_file_exactly_as_it_was_written(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """A re-serialisation is not guaranteed to match what the validator sees.
+
+    A contributed file has to be byte-for-byte the text on disk.
+    """
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(_switch_save(CUSTOM_CODE_START, "Yamaha"))
+    assert (await client.receive_json())["success"]
+
+    await client.send_json_auto_id(
+        {
+            "type": "hub_ir/export",
+            "platform": "switch",
+            "device_code": CUSTOM_CODE_START,
+        }
+    )
+    answer = await client.receive_json()
+    assert answer["success"], answer
+
+    result = answer["result"]
+    on_disk = (panel / "codes" / "switch" / f"{CUSTOM_CODE_START}.json").read_text(
+        "utf-8"
+    )
+    assert result["json"] == on_disk
+    assert result["bytes"] == len(on_disk.encode("utf-8"))
+    assert result["filename"] == f"{CUSTOM_CODE_START}.json"
+    assert result["summary"]["manufacturer"] == "Yamaha"
+    assert result["summary"]["code_count"] == 2
+
+
+async def test_the_issue_link_carries_the_facts_but_never_the_codes(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """A 100 kB file cannot fit in a URL, so it carries none of it.
+
+    Putting part of the file in would be a silent truncation, which is worse
+    than asking for an attachment.
+    """
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(_switch_save(CUSTOM_CODE_START, "Yamaha"))
+    assert (await client.receive_json())["success"]
+
+    await client.send_json_auto_id(
+        {
+            "type": "hub_ir/export",
+            "platform": "switch",
+            "device_code": CUSTOM_CODE_START,
+        }
+    )
+    result = (await client.receive_json())["result"]
+    url = result["issue_url"]
+
+    assert url.startswith(f"{REPO_URL}/issues/new?")
+    assert "Yamaha" in unquote_plus(url)
+    assert "switch" in unquote_plus(url)
+    # The codes themselves are the thing that must not be in there.
+    assert GOOD_CODE not in url
+    assert GOOD_CODE not in unquote_plus(url)
+    assert len(url) < 6000, f"the issue URL grew to {len(url)} characters"
+
+
+async def test_export_reports_the_gaps_it_knows_about(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """Whoever reviews the contribution should not have to find them."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {
+            **_switch_save(CUSTOM_CODE_START, "Partial"),
+            "codes": {"on": GOOD_CODE},
+        }
+    )
+    assert (await client.receive_json())["success"]
+
+    await client.send_json_auto_id(
+        {
+            "type": "hub_ir/export",
+            "platform": "switch",
+            "device_code": CUSTOM_CODE_START,
+        }
+    )
+    result = (await client.receive_json())["result"]
+
+    assert result["summary"]["code_count"] == 1
+    assert any("no code recorded" in warning for warning in result["warnings"])
+    assert "no code recorded" in unquote_plus(result["issue_url"])
+
+
+async def test_exporting_a_device_file_that_is_not_there_says_so(
+    hass: HomeAssistant, panel, hass_ws_client
+) -> None:
+    """Better than an empty download nobody can explain."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {"type": "hub_ir/export", "platform": "switch", "device_code": 99999}
+    )
+    answer = await client.receive_json()
+
+    assert not answer["success"]
+    assert answer["error"]["code"] == "not_found"
+
+
+def test_the_repository_is_named_in_one_place() -> None:
+    """Two copies of the slug would drift, and one of them would 404."""
+    assert REPO_SLUG in CODES_BASE_URL
+    assert REPO_SLUG in REPO_URL
+
+
+def test_the_panel_can_get_a_recording_off_the_machine() -> None:
+    """HACS ships only the component, so a recording exists nowhere else.
+
+    Losing one to a reinstall is the exact complaint this answers.
+    """
+    js = _panel_source()
+
+    assert 'type: "hub_ir/export"' in js
+    assert "_copyJson" in js
+    assert "_downloadJson" in js
+    assert "createObjectURL" in js
+    assert "data-download" in js, "earlier recordings cannot be downloaded"
+
+
 async def test_learn_over_the_websocket_returns_the_code(
     hass: HomeAssistant, panel, hass_ws_client, broadlink_remote
 ) -> None:
@@ -1319,8 +1454,11 @@ def test_the_panel_calls_only_commands_the_server_defines() -> None:
     server = (package / "websocket.py").read_text(encoding="utf-8")
     frontend = (package / "frontend.py").read_text(encoding="utf-8")
 
-    called = set(re.findall(r'type:\s*"([a-z_]+/[a-z_]+)"', js))
-    defined = set(re.findall(r'vol\.Required\("type"\):\s*"([a-z_]+/[a-z_]+)"', server))
+    # Anchored on the domain rather than any "x/y" string: a MIME type in a Blob
+    # is also `type: "…/…"`. A command misspelled in the domain half still shows
+    # up, as an endpoint nobody calls.
+    called = set(re.findall(r'type:\s*"(hub_ir/[a-z_]+)"', js))
+    defined = set(re.findall(r'vol\.Required\("type"\):\s*"(hub_ir/[a-z_]+)"', server))
 
     assert called, "the panel calls nothing at all"
     assert called <= defined, f"panel calls undefined commands: {called - defined}"

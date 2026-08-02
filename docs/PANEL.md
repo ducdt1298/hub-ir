@@ -193,6 +193,38 @@ Entries are refused, out loud, when they would cause trouble later:
 | anything but a number, for brightness and colour temperature | the integration compares these numerically |
 | nothing at all | — |
 
+## Sending a recording upstream
+
+A device file only helps the next person if it leaves your machine, so the saved
+screen offers three things, in this order:
+
+1. **Copy JSON** and **Download `<code>.json`**, with the file's real size next to
+   them.
+2. **Open a pre-filled issue** — a link to a new GitHub issue with the make, the
+   models, the code count, your Home Assistant and HubIR versions and any
+   validator warnings already filled in.
+3. **Show the raw JSON**, for when the clipboard is unavailable.
+
+**The link carries no codes at all.** A three-mode air conditioner comes to about
+23 kB and a URL cannot hold that, so the file travels as an attachment or a
+paste. Putting part of it in the link would be a silent truncation, which is
+worse than asking. Nothing is uploaded until you press the button on GitHub.
+
+## Keeping your own recordings
+
+**Download the files you record before you reinstall.** HACS installs only
+`custom_components/hub_ir/`, so the repository-root `codes/` directory is not
+shipped and a file you recorded does not exist upstream to be fetched again.
+
+Each of your recordings on the *Identify it* step has a **⭳** beside it, so
+saving all of them takes one click each from a screen you already visit. Drop the
+JSON back into `custom_components/hub_ir/codes/<platform>/` afterwards and it is
+picked up as it was.
+
+There is deliberately no upload button: an endpoint that writes arbitrary JSON
+into the configuration directory is real attack surface, and dropping the file
+back in place then pressing *Load that device file* already does the job.
+
 ## Where the files go
 
 `custom_components/hub_ir/codes/<platform>/<device_code>.json` — the same

@@ -58,9 +58,13 @@ COMPONENT_ABS_DIR = os.path.dirname(os.path.abspath(__file__))
 # pulse is escaped with 0x00 and follows as a big-endian 16-bit value.
 _SINGLE_BYTE_PULSE_LIMIT = 256
 
+# One place for the repository, so the download URL and the contribute-a-file
+# link cannot drift apart. A test asserts the slug really is inside the URL.
+REPO_SLUG = "ducdt1298/hub-ir"
+REPO_URL = f"https://github.com/{REPO_SLUG}"
+
 CODES_BASE_URL = (
-    "https://raw.githubusercontent.com/"
-    "ducdt1298/hub-ir/main/"
+    f"https://raw.githubusercontent.com/{REPO_SLUG}/main/"
     "codes/{platform}/{device_code}.json"
 )
 

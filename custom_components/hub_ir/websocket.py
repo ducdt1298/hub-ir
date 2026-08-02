@@ -14,12 +14,13 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
+from urllib.parse import urlencode
 
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_NAME, __version__ as ha_version
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType, UnknownHandler
 from homeassistant.exceptions import HomeAssistantError
@@ -28,6 +29,8 @@ import homeassistant.helpers.config_validation as cv
 
 from . import (
     DOMAIN,
+    REPO_URL,
+    VERSION,
     Helper,
     _write_atomic,
     codes_dir,
@@ -37,10 +40,12 @@ from . import (
 from .const import CONF_CONTROLLER_DATA, CONF_DEVICE_CODE, CONF_PLATFORM, SOURCE_PANEL
 from .device_file import (
     CUSTOM_CODE_START,
+    MAX_LISTED,
     PLATFORMS,
     build_device_file,
     capture_plan,
     codes_from_device_file,
+    command_paths,
     spec_from_device_file,
     validate,
 )
@@ -61,6 +66,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_save,
         ws_learn,
         ws_send,
+        ws_export,
         ws_create_entity,
     ):
         websocket_api.async_register_command(hass, handler)
@@ -351,6 +357,140 @@ async def ws_send(
         return
 
     connection.send_result(msg["id"], {"sent": True})
+
+
+def _issue_body(
+    platform: str,
+    device_code: int,
+    data: dict[str, Any],
+    report: Any,
+    ha_version: str,
+) -> str:
+    """Return the body of a pre-filled 'here is a device file' issue.
+
+    Fixed size, a few hundred bytes. The device file itself is deliberately not
+    in here: a climate file runs to 100 kB and a URL cannot carry it, so it
+    travels as an attachment or a paste instead. Putting part of it in would be a
+    silent truncation, which is worse than asking.
+    """
+    models = ", ".join(str(model) for model in data.get("supportedModels") or [])
+    recorded = len(command_paths(data.get("commands") or {}))
+    gaps = sum(1 for warning in report.warnings if "no code recorded" in warning)
+
+    lines = [
+        "### Device",
+        f"- Platform: {platform}",
+        f"- Manufacturer: {data.get('manufacturer') or 'unknown'}",
+        f"- Models: {models or 'unknown'}",
+        f"- Codes recorded: {recorded}",
+        f"- Recorded with HubIR {VERSION} on Home Assistant {ha_version}",
+        "",
+    ]
+
+    if report.warnings:
+        lines += ["### Validator warnings"]
+        lines += [f"- {warning}" for warning in report.warnings[:MAX_LISTED]]
+        if len(report.warnings) > MAX_LISTED:
+            lines.append(f"- (+{len(report.warnings) - MAX_LISTED} more)")
+        lines.append("")
+    elif not gaps:
+        lines += ["The validator reports no errors and no warnings.", ""]
+
+    lines += [
+        "### The file",
+        "",
+        f"<!-- Drag {device_code}.json onto this box, or paste it in a fenced",
+        "     code block if it is small enough. -->",
+        "",
+        "### Anything else",
+        "",
+        "<!-- Remote model, quirks, anything that would help. -->",
+    ]
+    return "\n".join(lines)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hub_ir/export",
+        vol.Required("platform"): PLATFORM_SELECTOR,
+        vol.Required("device_code"): vol.All(int, vol.Range(min=0)),
+    }
+)
+@websocket_api.async_response
+async def ws_export(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Hand a device file back so it can leave this machine.
+
+    A recording only helps the next person if it can be copied out, and until
+    now the panel showed a filesystem path and nothing else. The issue URL is
+    assembled here rather than in the browser because the panel may not contain
+    a scheme or a host: Home Assistant's content security policy, and a test,
+    both hold it to that.
+    """
+    platform, device_code = msg["platform"], msg["device_code"]
+    path = device_file_path(platform, device_code)
+
+    def _read() -> str | None:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                return handle.read()
+        except OSError:
+            return None
+
+    # Read back the literal text on disk rather than re-serialising what was
+    # parsed: a contributed file has to be byte-for-byte what the validator will
+    # see upstream.
+    raw = await hass.async_add_executor_job(_read)
+    if raw is None:
+        connection.send_error(
+            msg["id"],
+            "not_found",
+            f"No device file for {platform} code {device_code} on this machine",
+        )
+        return
+
+    try:
+        data = json.loads(raw)
+    except ValueError as err:
+        connection.send_error(msg["id"], "unreadable_device_file", str(err))
+        return
+
+    report = validate(platform, data, str(device_code))
+    models = list(data.get("supportedModels") or [])
+    title = (
+        f"Device file: {platform} — {data.get('manufacturer') or 'unknown'}"
+        f"{' ' + models[0] if models else ''}"
+    )
+    query = urlencode(
+        {
+            "title": title,
+            "body": _issue_body(platform, device_code, data, report, ha_version),
+            "labels": "device file",
+        }
+    )
+
+    connection.send_result(
+        msg["id"],
+        {
+            "platform": platform,
+            "device_code": device_code,
+            "filename": f"{device_code}.json",
+            "json": raw,
+            "bytes": len(raw.encode("utf-8")),
+            "summary": {
+                "manufacturer": data.get("manufacturer") or "",
+                "models": models,
+                "code_count": len(command_paths(data.get("commands") or {})),
+            },
+            "warnings": report.warnings,
+            "issue_url": f"{REPO_URL}/issues/new?{query}",
+            "repo_url": REPO_URL,
+        },
+    )
 
 
 def _matching_entry(hass: HomeAssistant, msg: dict[str, Any]) -> ConfigEntry | None:

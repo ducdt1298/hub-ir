@@ -209,6 +209,14 @@ const EXTRA_PRESETS = {
 
 const MAX_NAME_LENGTH = 64;
 
+/**
+ * Above this a device file is not going into a comment by hand.
+ *
+ * A three-mode air conditioner comes to about 23 kB, so in practice climate
+ * files are always attachments and a switch or a fan can be pasted.
+ */
+const PASTEABLE_BYTES = 4000;
+
 const STYLES = `
   :host { display: block; height: 100%; background: var(--primary-background-color); }
   .wrap { max-width: 60rem; margin: 0 auto; padding: 1rem 1rem 4rem; box-sizing: border-box; }
@@ -288,6 +296,15 @@ const STYLES = `
   .presets { margin-top: .4rem; }
   .presets .chip { font-size: .8rem; padding: .2rem .5rem; }
   .listerr { margin-top: .4rem; }
+  a.button-link {
+    display: inline-block; text-decoration: none; font: inherit;
+    padding: .5rem .9rem; border-radius: 6px;
+    background: var(--primary-color); color: var(--text-primary-color, #fff);
+  }
+  textarea {
+    border: 1px solid var(--divider-color, #ccc); border-radius: 6px;
+    background: var(--card-background-color, #fff); color: var(--primary-text-color);
+  }
 `;
 
 class BroadlinkIrPanel extends HTMLElement {
@@ -327,6 +344,10 @@ class BroadlinkIrPanel extends HTMLElement {
       toggle: false,
       // Permission to replace a device file that already exists.
       overwrite: false,
+      // The file just saved, ready to copy or download.
+      export: null,
+      showRaw: false,
+      copied: false,
     };
   }
 
@@ -584,9 +605,24 @@ class BroadlinkIrPanel extends HTMLElement {
         codes: this._state.codes,
         overwrite: this._state.overwrite,
       });
+
+      // Fetched now rather than when Copy is pressed: the clipboard API wants to
+      // run inside the click that asked for it, and a websocket round trip in
+      // that handler risks losing the user activation. A failure here is not
+      // fatal — the file is written either way.
+      let exported = null;
+      try {
+        exported = await this._export(result.device_code);
+      } catch {
+        exported = null;
+      }
+
       this._set({
         step: "saved",
         saved: result,
+        export: exported,
+        showRaw: false,
+        copied: false,
         status: null,
         entityName: defaultName(this._state.spec, this._state.platform),
         creating: false,
@@ -752,7 +788,10 @@ class BroadlinkIrPanel extends HTMLElement {
                  ${s.customCodes
                    .map(
                      (code) =>
-                       `<span class="chip" data-reopen="${code}" role="button">${code}</span>`
+                       `<span class="chip" data-reopen="${code}" role="button">${code}</span>
+                        <button type="button" class="icon" data-download="${code}"
+                          title="Download ${code}.json — keep a copy before you reinstall"
+                          aria-label="Download ${code}.json">&#11015;</button>`
                    )
                    .join("")}
                </div>`
@@ -1255,8 +1294,126 @@ class BroadlinkIrPanel extends HTMLElement {
     </div>
 
     ${s.created ? this._createdView() : this._createView()}
+    ${this._shareView()}
 
     <div class="row"><button id="restart">Teach another device</button></div>`;
+  }
+
+  /**
+   * Offer to send the recording upstream.
+   *
+   * A device file only helps the next person if it can leave this machine, and
+   * this panel used to show a filesystem path and stop there. What decides
+   * whether a fork like this is worth using is how many devices it covers, and
+   * that only grows if contributing is easier than not bothering.
+   */
+  _shareView() {
+    const x = this._state.export;
+
+    if (!x) {
+      return `<div class="card">
+        <h2>Send it upstream</h2>
+        <p class="muted">
+          The file was written, but it could not be read back for export.
+          It is still on disk at the path above.
+        </p>
+      </div>`;
+    }
+
+    return `<div class="card">
+      <h2>Send it upstream</h2>
+      <p class="muted">
+        A device file only helps the next person if it leaves this machine. Two
+        things, in this order:
+      </p>
+      <div class="row" style="margin-top:.75rem">
+        <button id="copy_json">Copy JSON</button>
+        <button id="download_json">Download ${esc(x.filename)}</button>
+      </div>
+      <p class="muted" style="margin-top:.4rem">
+        ${formatBytes(x.bytes)} — ${
+          x.bytes > PASTEABLE_BYTES
+            ? `far too big for any issue URL, so it has to travel as an
+               attachment or a paste.`
+            : `small enough to paste straight into the issue.`
+        }
+      </p>
+      <div class="row" style="margin-top:.75rem">
+        <a class="button-link" href="${esc(x.issue_url)}" target="_blank"
+          rel="noopener">Open a pre-filled issue</a>
+      </div>
+      <p class="muted" style="margin-top:.4rem">
+        The make, the models, the code count and your versions are filled in
+        already; drop the file you just copied or downloaded into the box it
+        leaves for you. <strong>The link carries no codes at all</strong>, and
+        nothing is uploaded until you press the button on GitHub.
+      </p>
+      <div class="row" style="margin-top:.75rem">
+        <button id="show_raw">${
+          this._state.showRaw ? "Hide the raw JSON" : "Show the raw JSON"
+        }</button>
+      </div>
+      ${
+        this._state.showRaw
+          ? `<textarea id="raw_json" readonly rows="12"
+               style="width:100%;box-sizing:border-box;margin-top:.5rem;font-family:monospace;font-size:.75rem"
+               >${esc(x.json)}</textarea>`
+          : ""
+      }
+      ${
+        this._state.copied
+          ? `<div class="status ok">Copied. Paste it into the issue, or attach the
+             downloaded file.</div>`
+          : ""
+      }
+    </div>`;
+  }
+
+  /** Fetch the file just written, so Copy and Download are instant. */
+  async _export(deviceCode) {
+    const code = deviceCode ?? this._state.saved.device_code;
+    return this._call({
+      type: "hub_ir/export",
+      platform: this._state.platform,
+      device_code: code,
+    });
+  }
+
+  /** Put the JSON on the clipboard, or fall back to showing it. */
+  async _copyJson() {
+    const x = this._state.export;
+    if (!x) return;
+
+    try {
+      await navigator.clipboard.writeText(x.json);
+      this._set({ copied: true, showRaw: false });
+    } catch {
+      // Refused permission, or an embedding without the clipboard API. Showing
+      // the text is a worse experience but never a dead end.
+      this._set({
+        copied: false,
+        showRaw: true,
+        status: {
+          kind: "error",
+          text: "The clipboard was refused. Select the text below and copy it.",
+        },
+      });
+    }
+  }
+
+  /** Save the file to the user's machine. A Blob, not a fetch. */
+  _downloadJson(payload = this._state.export) {
+    if (!payload) return;
+
+    const url = URL.createObjectURL(
+      new Blob([payload.json], { type: "application/json" })
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = payload.filename;
+    // Never appended to the shadow root: the next render would tear it out.
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   /**
@@ -1501,6 +1658,25 @@ class BroadlinkIrPanel extends HTMLElement {
     // name that was actually typed.
     on("entity_name", "change", () => this._render());
     on("create", "click", () => this._create());
+    on("copy_json", "click", () => this._copyJson());
+    on("download_json", "click", () => this._downloadJson());
+    on("show_raw", "click", () =>
+      this._set({ showRaw: !this._state.showRaw, copied: false })
+    );
+
+    // Download any earlier recording of your own. HACS ships only the component,
+    // so a file you recorded is not in the repository to be fetched again —
+    // getting it off the machine before a reinstall is the whole point.
+    for (const node of root.querySelectorAll("[data-download]")) {
+      node.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          this._downloadJson(await this._export(Number(node.dataset.download)));
+        } catch (err) {
+          this._set({ status: { kind: "error", text: describe(err) } });
+        }
+      });
+    }
     on("show", "click", () => {
       this.dispatchEvent(
         new CustomEvent("hass-more-info", {
@@ -1611,6 +1787,14 @@ function listValue(raw, config, list) {
     return { error: `“${text}” is already in the list.` };
   }
   return { value: text };
+}
+
+/** Describe a file size the way someone deciding how to send it would read it. */
+function formatBytes(bytes) {
+  const size = Number(bytes) || 0;
+  if (size < 1024) return `${size} bytes`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function slugify(value) {

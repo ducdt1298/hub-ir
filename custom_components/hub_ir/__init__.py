@@ -1,6 +1,6 @@
 """HubIR — Broadlink-only fork.
 
-Controls climate, fan, light and media_player devices over IR/RF using a
+Controls climate, fan, light, media_player and switch devices over IR/RF using a
 Broadlink universal remote and a JSON database of device codes.
 """
 
@@ -50,7 +50,7 @@ from .device_file import has_any_code, is_recorded  # noqa: F401
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "hub_ir"
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 
 COMPONENT_ABS_DIR = os.path.dirname(os.path.abspath(__file__))
 

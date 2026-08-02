@@ -2,9 +2,10 @@
 
 # HubIR for Home Assistant
 
-Control **climate devices**, **media players**, **fans** and **lights** over IR/RF
-with a [Broadlink](https://www.home-assistant.io/integrations/broadlink/) remote
-and a database of pre-recorded device codes.
+Control **climate devices**, **media players**, **fans**, **lights** and
+**switches** over IR/RF with a
+[Broadlink](https://www.home-assistant.io/integrations/broadlink/) remote and a
+database of pre-recorded device codes.
 
 This is a maintained, Broadlink-only fork of
 [smartHomeHub/SmartIR](https://github.com/smartHomeHub/SmartIR), whose last
@@ -405,7 +406,19 @@ from the device.
 **The panel learns IR, not RF.** Broadlink learns an RF code by sweeping for the
 frequency first, which is a different flow with its own failure modes. For a
 curtain motor or an RF ceiling fan, use `remote.learn_command` with
-`command_type: rf` by hand.
+`command_type: rf` by hand. *Sending* RF works normally once the code exists,
+which is why there is no `cover` platform yet: most curtain motors are RF, and a
+platform that cannot record its own codes would be half a feature.
+
+**Re-assert is climate and switch only.** A great many televisions and lights use
+one IR code for both on and off, which makes re-sending a state a coin flip that
+can switch the device off. See
+[when the power sensor disagrees](docs/CLIMATE.md#when-the-power-sensor-disagrees).
+
+**`hub_ir.send_command` does not change entity state.** Pressing `extras/menu`
+says nothing about whether the device is on or which source it shows, and guessing
+would be worse than staying quiet. Use the platform's own service for the things
+it models.
 
 ## Development
 

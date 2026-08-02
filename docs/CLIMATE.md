@@ -31,7 +31,85 @@ any given device, not both.
 | `temperature_sensor` | string | optional | *entity_id* for a temperature sensor |
 | `humidity_sensor` | string | optional | *entity_id* for a humidity sensor |
 | `power_sensor` | string | optional | *entity_id* for a sensor that monitors whether your device is actually `on` or `off`. This may be a power monitor sensor. (Accepts only on/off states) |
-| `power_sensor_restore_state` | boolean | optional | If `power_sensor` is set, and the device is likely to turn off and back on while still in the set mode (for instance, a minisplit cycling on and off while in heating or cooling mode), setting this to `true` will cause the climate state to update dynamically, following the state of the `power_sensor`. |
+| `power_sensor_restore_state` | boolean | optional | If `power_sensor` is set, and the device is likely to turn off and back on while still in the set mode (for instance, a minisplit cycling on and off while in heating or cooling mode), setting this to `true` will cause the climate state to update dynamically, following the state of the `power_sensor`. When the sensor reports `on` while Home Assistant thought the unit was off, `true` reports the mode it last ran in and `false` reports the first mode the device file lists. |
+
+## One-touch buttons: Turbo, Eco, Sleep, Quiet
+
+These are not another dimension of the command matrix. They sit in a flat group,
+one code each:
+
+```json
+{
+  "operationModes": ["cool", "heat"],
+  "fanModes": ["low", "high"],
+  "presetBaseline": {
+    "operationMode": "cool",
+    "fanMode": "high",
+    "temperature": 25
+  },
+  "commands": {
+    "off": "JgBQ…",
+    "cool": { "…": "…" },
+    "presets": {
+      "turbo": "JgBQ…",
+      "eco": "JgBQ…",
+      "sleep": "JgBQ…"
+    }
+  }
+}
+```
+
+The entity offers `preset_modes` built from the names under `commands.presets`
+that actually hold a code — there is no separate list to keep in step, and a
+name left as `""` is not offered. A file with no `presets` group gets no preset
+control at all, which is why none of the shipped device files changed.
+
+### Why `presetBaseline` exists
+
+On almost every air conditioner, Turbo does **not** send a small "turbo on"
+packet. It sends the unit's whole state — mode, fan speed, target temperature —
+with one extra bit flipped. So the code you record for Turbo will always put the
+unit back into whichever state the remote was showing when you pressed it.
+
+`presetBaseline` records that state, and selecting the preset makes the entity
+report it. Without it Home Assistant would keep showing the temperature you had
+before, and your next adjustment would be calculated from a number the unit is
+not on. Every key inside it is optional; `operationMode` must be one of
+`operationModes` or the file is rejected, because the entity would otherwise try
+to publish an `hvac_mode` Home Assistant does not accept.
+
+If a file records presets but no baseline, the codes still send — the entity just
+cannot say what state they command, and the validator warns about it.
+
+### What clears a preset
+
+Nothing sends a "turbo off" code, because there is not one. The preset bit lives
+in the ordinary state frame, so transmitting that frame again is what turns it
+off. Consequently:
+
+* selecting `none` re-sends the current state (and sends nothing while the unit
+  is off, since there is no state to re-assert);
+* changing the mode, fan speed, swing or temperature also clears the preset,
+  because each of those transmits the ordinary frame.
+
+That is the real behaviour of the hardware rather than a simplification.
+
+## Other buttons
+
+Anything the climate entity cannot express — an LED toggle, a beep, a filter
+reset — goes under `commands.extras`, a flat group of names to codes:
+
+```json
+"commands": {
+  "off": "JgBQ…",
+  "extras": { "led": "JgBQ…", "beep": "JgBQ…" }
+}
+```
+
+Nesting inside the group is rejected: `extras/led` has to name exactly one code.
+Names beginning with `_` or `$` are treated as documentation and never sent.
+Recording these keeps them with the device file, and the learning panel no longer
+drops them when a file is reopened as a template.
 
 ## Example
 Add a Broadlink RM device named "Bedroom" via config flow (read the [docs](https://www.home-assistant.io/integrations/broadlink/)).

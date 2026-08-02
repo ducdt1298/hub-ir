@@ -77,6 +77,32 @@ data:
   media_content_type: "channel"
 ```
 
+### Other buttons
+
+A television's remote has far more on it than a media player entity models: a
+menu key, four arrows, OK, back, the digits, a favourite input. Those go under
+`commands.extras`, a flat group of names to codes:
+
+```json
+"commands": {
+  "on": "JgBQ…",
+  "off": "JgBQ…",
+  "extras": {
+    "menu": "JgBQ…",
+    "up": "JgBQ…",
+    "down": "JgBQ…",
+    "ok": "JgBQ…"
+  }
+}
+```
+
+Nesting inside the group is rejected: `extras/menu` has to name exactly one code.
+Names beginning with `_` or `$` are treated as documentation and never sent.
+
+Several of the shipped files already carry buttons like this at the top level
+(`NavUp`, `Setup`, `Enter`, the digits). Those still work; `commands.extras` is
+where newly recorded ones belong, and where the learning panel can capture them.
+
 ## Available codes for TV devices:
 The following are the code files created by the amazing people in the community. Before you start creating your own code file, try if one of them works for your device. **Please open an issue if your device is working and not included in the supported models.**
 Contributing to your own code files is welcome. Incomplete files are not accepted: run `python scripts/validate_codes.py` before opening a pull request.

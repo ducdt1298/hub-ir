@@ -104,6 +104,14 @@ custom_components/hub_ir/codes/climate/1000.json
 
 Browse the files in [codes/](codes/) to find one to copy.
 
+**Keep a copy of anything you record yourself.** HACS installs only
+`custom_components/hub_ir/`, so the repository-root `codes/` directory is not
+shipped and a file you recorded does not exist upstream to be downloaded again.
+That covers every device code at or above 90000, and any file below that range
+you added by hand. Copy those out of
+`custom_components/hub_ir/codes/<platform>/` before you reinstall or migrate,
+and drop them back in afterwards.
+
 ## Recording a device of your own
 
 If your air conditioner is not in the tables below, the **HubIR** panel in

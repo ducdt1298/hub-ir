@@ -49,7 +49,9 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_PLATFORM,
     CONF_POWER_SENSOR,
+    CONF_POWER_SENSOR_REASSERT,
     CONF_POWER_SENSOR_RESTORE_STATE,
+    CONF_REASSERT_INTERVAL,
     CONF_SOURCE_NAMES,
     CONF_TEMPERATURE_SENSOR,
     DEFAULT_DELAY,
@@ -121,6 +123,17 @@ def _options_fields(platform: str) -> dict[Any, Any]:
     if platform == "climate":
         fields[vol.Optional(CONF_POWER_SENSOR_RESTORE_STATE, default=False)] = (
             BooleanSelector()
+        )
+
+    # Only where an absolute, idempotent state code exists. A television or a
+    # light very often has one power code for both directions, which would make
+    # a re-assert a coin flip.
+    if platform in ("climate", "switch"):
+        fields[vol.Optional(CONF_POWER_SENSOR_REASSERT, default=False)] = (
+            BooleanSelector()
+        )
+        fields[vol.Optional(CONF_REASSERT_INTERVAL, default=0)] = NumberSelector(
+            NumberSelectorConfig(min=0, max=1440, step=1, mode=NumberSelectorMode.BOX)
         )
 
     if platform == "media_player":
@@ -196,6 +209,10 @@ def _clean_options(options: dict[str, Any]) -> dict[str, Any]:
     }
     if CONF_DELAY in cleaned:
         cleaned[CONF_DELAY] = float(cleaned[CONF_DELAY])
+    # A NumberSelector submits a float, and this one is a count of minutes that
+    # timedelta and the log message both read better as an integer.
+    if CONF_REASSERT_INTERVAL in cleaned:
+        cleaned[CONF_REASSERT_INTERVAL] = int(cleaned[CONF_REASSERT_INTERVAL])
     return cleaned
 
 

@@ -16,6 +16,7 @@ Two shapes of remote are supported, because both are common:
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 import logging
 from typing import Any
 
@@ -30,9 +31,13 @@ from homeassistant.core import Event, EventStateChangedData, HomeAssistant, call
 from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+import homeassistant.util.dt as dt_util
 
 from . import (
     Helper,
@@ -43,7 +48,13 @@ from . import (
     remote_entity_id,
     warn_if_no_unique_id,
 )
-from .const import CONF_DEVICE_INFO
+from .const import (
+    CONF_DEVICE_INFO,
+    CONF_POWER_SENSOR_REASSERT,
+    CONF_REASSERT_INTERVAL,
+    REASSERT_MAX_ATTEMPTS,
+    REASSERT_SETTLE_SECONDS,
+)
 from .controller import get_controller
 from .services import HubIRCommandMixin, async_register_entity_services
 
@@ -74,6 +85,8 @@ PLATFORM_SCHEMA = SWITCH_PLATFORM_SCHEMA.extend(
         vol.Required(CONF_CONTROLLER_DATA): remote_entity_id,
         vol.Optional(CONF_DELAY, default=DEFAULT_DELAY): cv.positive_float,
         vol.Optional(CONF_POWER_SENSOR): cv.entity_id,
+        vol.Optional(CONF_POWER_SENSOR_REASSERT, default=False): cv.boolean,
+        vol.Optional(CONF_REASSERT_INTERVAL, default=0): cv.positive_int,
     }
 )
 
@@ -147,6 +160,7 @@ class HubIRSwitch(HubIRCommandMixin, SwitchEntity, RestoreEntity):
             )
 
         self._state = STATE_OFF
+        self._read_reassert_options(config)
         self._temp_lock = asyncio.Lock()
 
         # Init the IR/RF controller
@@ -157,6 +171,34 @@ class HubIRSwitch(HubIRCommandMixin, SwitchEntity, RestoreEntity):
             self._controller_data,
             self._delay,
         )
+
+    def _read_reassert_options(self, config: ConfigType) -> None:
+        """Set up re-asserting a state the power sensor contradicts.
+
+        Refused outright for a remote with only a toggle button. Re-sending that
+        code when the sensor and the entity disagree is a coin flip that can
+        oscillate for ever, because nothing in the pair is absolute.
+        """
+        self._reassert = bool(config.get(CONF_POWER_SENSOR_REASSERT))
+        self._reassert_interval = int(config.get(CONF_REASSERT_INTERVAL) or 0)
+        self._reassert_attempts = 0
+        self._reassert_suspended = False
+        self._last_transmit = None
+
+        absolute = self._has_code(CMD_ON) and self._has_code(CMD_OFF)
+        if absolute or not (self._reassert or self._reassert_interval):
+            return
+
+        _LOGGER.warning(
+            "Device code %s records only a toggle code, so %s and %s are ignored: "
+            "re-sending a toggle when the sensor disagrees could switch the "
+            "device either way",
+            self._device_code,
+            CONF_POWER_SENSOR_REASSERT,
+            CONF_REASSERT_INTERVAL,
+        )
+        self._reassert = False
+        self._reassert_interval = 0
 
     def _has_code(self, command: str) -> bool:
         """Return whether the device file records a usable code for a command."""
@@ -197,6 +239,18 @@ class HubIRSwitch(HubIRCommandMixin, SwitchEntity, RestoreEntity):
             if power_state := self.hass.states.get(self._power_sensor):
                 self._update_from_power_state(power_state.state)
 
+        # Cancelled on unload and on every options-flow reload, the same way the
+        # sensor listener above is.
+        if self._reassert_interval:
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass,
+                    self._async_reassert_tick,
+                    timedelta(minutes=self._reassert_interval),
+                    cancel_on_shutdown=True,
+                )
+            )
+
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID."""
@@ -231,6 +285,7 @@ class HubIRSwitch(HubIRCommandMixin, SwitchEntity, RestoreEntity):
             "supported_models": self._supported_models,
             "supported_controller": self._supported_controller,
             "commands_encoding": self._commands_encoding,
+            "reassert_attempts": self._reassert_attempts,
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -275,24 +330,113 @@ class HubIRSwitch(HubIRCommandMixin, SwitchEntity, RestoreEntity):
 
         async with optimistic_state(self, "_state"):
             self._state = state
+            # A command from the user is a fresh start for the re-assert budget.
+            self._reassert_attempts = 0
+            self._reassert_suspended = False
             async with self._temp_lock:
                 await self._controller.send(self._command(command))
+                self._last_transmit = dt_util.utcnow()
 
     async def _async_power_sensor_changed(
         self, event: Event[EventStateChangedData]
     ) -> None:
-        """Track the device being switched on or off by something else."""
+        """Track the device being switched on or off by something else.
+
+        With power_sensor_reassert off — the default — this adopts the reading and
+        nothing else, exactly as it always has.
+        """
         old_state = event.data["old_state"]
         new_state = event.data["new_state"]
 
-        if new_state is None:
+        if new_state is None or new_state.state not in (STATE_ON, STATE_OFF):
             return
 
         if old_state is not None and new_state.state == old_state.state:
             return
 
+        first_reading = old_state is None or old_state.state not in (
+            STATE_ON,
+            STATE_OFF,
+        )
+
+        # Only one direction is ever re-asserted: sensor off while we believe on.
+        # A sensor saying on while we believe off is almost always somebody with
+        # the original remote, and turning their amplifier off over it would be
+        # the worst thing this could do.
+        if (
+            self._reassert
+            and not first_reading
+            and new_state.state == STATE_OFF
+            and self._state == STATE_ON
+        ):
+            await self._async_handle_contradiction()
+            return
+
         self._update_from_power_state(new_state.state)
         self.async_write_ha_state()
+
+    async def _async_handle_contradiction(self) -> None:
+        """Re-send 'on' when the sensor says the device is off."""
+        if self._within_settle_window():
+            # The sensor is catching up with what we just sent.
+            return
+
+        if self._reassert_attempts >= REASSERT_MAX_ATTEMPTS:
+            if not self._reassert_suspended:
+                self._reassert_suspended = True
+                _LOGGER.warning(
+                    "Device code %s: %s still reports off after %s attempts to "
+                    "re-send 'on', so %s is giving up and following the sensor. "
+                    "Check the emitter, or turn off %s",
+                    self._device_code,
+                    self._power_sensor,
+                    REASSERT_MAX_ATTEMPTS,
+                    self.entity_id,
+                    CONF_POWER_SENSOR_REASSERT,
+                )
+            self._state = STATE_OFF
+            self.async_write_ha_state()
+            return
+
+        self._reassert_attempts += 1
+        await self._async_reassert()
+        self.async_write_ha_state()
+
+    def _within_settle_window(self) -> bool:
+        """Return whether we transmitted too recently to trust a contradiction."""
+        if self._last_transmit is None:
+            return False
+        elapsed = dt_util.utcnow() - self._last_transmit
+        return elapsed.total_seconds() < REASSERT_SETTLE_SECONDS
+
+    async def _async_reassert(self) -> None:
+        """Re-send the code for the believed state.
+
+        Swallows failures: both callers are background, and neither has anywhere
+        to report to. Not wrapped in optimistic_state either, because no state is
+        changing and a failure has nothing to roll back.
+        """
+        command = COMMAND_FOR_STATE[self._state]
+        try:
+            async with self._temp_lock:
+                await self._controller.send(self._command(command))
+                self._last_transmit = dt_util.utcnow()
+        except HomeAssistantError as err:
+            _LOGGER.debug(
+                "Device code %s: re-assert failed: %s", self._device_code, err
+            )
+
+    async def _async_reassert_tick(self, _now) -> None:
+        """Re-send the current state on a timer, for a device that drifts."""
+        if self._state != STATE_ON or self._reassert_suspended:
+            # Nothing is re-sent while off: transmitting at a device somebody
+            # just switched on by hand is the same fight as above.
+            return
+
+        if self._within_settle_window():
+            return
+
+        await self._async_reassert()
 
     @callback
     def _update_from_power_state(self, power_state: str) -> None:

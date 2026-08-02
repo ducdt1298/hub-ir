@@ -24,7 +24,9 @@
           "temperature_sensor": "Temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "power_sensor": "Power sensor",
-          "power_sensor_restore_state": "Restore the last mode when the power sensor turns on"
+          "power_sensor_restore_state": "Restore the last mode when the power sensor turns on",
+          "power_sensor_reassert": "Re-send the state when the power sensor disagrees",
+          "reassert_interval": "Re-send the current state every N minutes (0 = never)"
         },
         "data_description": {
           "device_code": "A number such as 1020. Codes from 90000 up are the ones you recorded yourself.",
@@ -33,7 +35,9 @@
           "temperature_unit": "Leave empty to read it from the device file, which is right for almost every device.",
           "temperature_sensor": "Optional. Reports the real room temperature, which infrared cannot.",
           "humidity_sensor": "Optional.",
-          "power_sensor": "Optional. Tells the entity whether the device is really on."
+          "power_sensor": "Optional. Tells the entity whether the device is really on.",
+          "power_sensor_reassert": "Only acts when the sensor says off while Home Assistant thinks the unit is running — a dropped IR frame. It never switches the unit off, because a sensor saying on almost always means somebody picked up the real remote. Waits a minute after any command, and gives up after three tries. Needs a sensor that reports more often than once a minute.",
+          "reassert_interval": "For a unit that forgets its setpoint after a power blip. Sends nothing while the entity is off."
         }
       },
       "fan": {
@@ -144,13 +148,17 @@
           "power_sensor": "Power sensor",
           "power_sensor_restore_state": "Restore the last mode when the power sensor turns on",
           "device_class": "Device class",
-          "source_names": "Source names"
+          "source_names": "Source names",
+          "power_sensor_reassert": "Re-send the state when the power sensor disagrees",
+          "reassert_interval": "Re-send the current state every N minutes (0 = never)"
         },
         "data_description": {
           "controller_data": "The remote entity that transmits the codes.",
           "delay": "How long to wait between the codes of a multi-code command.",
           "temperature_unit": "Leave empty to read it from the device file.",
-          "source_names": "Rename the sources the device file provides, for example HDMI1: DVD player. Set a source to null to hide it."
+          "source_names": "Rename the sources the device file provides, for example HDMI1: DVD player. Set a source to null to hide it.",
+          "power_sensor_reassert": "Only acts when the sensor says off while Home Assistant thinks the unit is running — a dropped IR frame. It never switches the unit off, because a sensor saying on almost always means somebody picked up the real remote. Waits a minute after any command, and gives up after three tries. Needs a sensor that reports more often than once a minute.",
+          "reassert_interval": "For a unit that forgets its setpoint after a power blip. Sends nothing while the entity is off."
         }
       }
     },

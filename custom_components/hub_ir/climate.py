@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 import logging
 from typing import Any
 
@@ -35,9 +36,13 @@ from homeassistant.core import Event, EventStateChangedData, HomeAssistant, call
 from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+import homeassistant.util.dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from . import (
@@ -49,7 +54,13 @@ from . import (
     remote_entity_id,
     warn_if_no_unique_id,
 )
-from .const import CONF_DEVICE_INFO
+from .const import (
+    CONF_DEVICE_INFO,
+    CONF_POWER_SENSOR_REASSERT,
+    CONF_REASSERT_INTERVAL,
+    REASSERT_MAX_ATTEMPTS,
+    REASSERT_SETTLE_SECONDS,
+)
 from .controller import get_controller
 from .device_file import ANNOTATION_PREFIXES, PRESETS_KEY, RESERVED_COMMAND_KEYS
 from .services import HubIRCommandMixin, async_register_entity_services
@@ -96,6 +107,8 @@ PLATFORM_SCHEMA = CLIMATE_PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_HUMIDITY_SENSOR): cv.entity_id,
         vol.Optional(CONF_POWER_SENSOR): cv.entity_id,
         vol.Optional(CONF_POWER_SENSOR_RESTORE_STATE, default=False): cv.boolean,
+        vol.Optional(CONF_POWER_SENSOR_REASSERT, default=False): cv.boolean,
+        vol.Optional(CONF_REASSERT_INTERVAL, default=0): cv.positive_int,
     }
 )
 
@@ -156,6 +169,7 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
         self._humidity_sensor = config.get(CONF_HUMIDITY_SENSOR)
         self._power_sensor = config.get(CONF_POWER_SENSOR)
         self._power_sensor_restore_state = config.get(CONF_POWER_SENSOR_RESTORE_STATE)
+        self._read_reassert_options(config)
 
         self._manufacturer = device_data["manufacturer"]
         self._supported_models = device_data["supportedModels"]
@@ -219,6 +233,20 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
             self._controller_data,
             self._delay,
         )
+
+    def _read_reassert_options(self, config: ConfigType) -> None:
+        """Set up re-asserting a state the power sensor contradicts.
+
+        Off unless asked for, so every configuration that already exists keeps
+        the behaviour it has: adopt whatever the sensor says and transmit nothing.
+        """
+        self._reassert = bool(config.get(CONF_POWER_SENSOR_REASSERT))
+        self._reassert_interval = int(config.get(CONF_REASSERT_INTERVAL) or 0)
+        self._reassert_attempts = 0
+        self._reassert_suspended = False
+        # When we last put a code on the air, so a contradiction that is really
+        # the sensor catching up can be told apart from a command that was missed.
+        self._last_transmit = None
 
     def _recorded_presets(self) -> list[str]:
         """Return the preset modes to offer, PRESET_NONE first, or nothing.
@@ -357,6 +385,19 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
             self.async_on_remove(
                 async_track_state_change_event(
                     self.hass, self._power_sensor, self._async_power_sensor_changed
+                )
+            )
+
+        # Cancelled on unload and on every options-flow reload, the same way the
+        # sensor listeners above are.
+        if self._reassert_interval:
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass,
+                    self._async_reassert_tick,
+                    timedelta(minutes=self._reassert_interval),
+                    # Nothing about a refresh is worth delaying a shutdown for.
+                    cancel_on_shutdown=True,
                 )
             )
 
@@ -500,6 +541,9 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
             "supported_controller": self._supported_controller,
             "commands_encoding": self._commands_encoding,
             "on_by_remote": self._on_by_remote,
+            # Always present, 0 when re-assert is off. Makes "is it fighting the
+            # device?" answerable from a dashboard rather than from the log.
+            "reassert_attempts": self._reassert_attempts,
         }
 
     def _round_to_precision(self, temperature: float) -> float:
@@ -647,11 +691,14 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
         else:
             await self.async_set_hvac_mode(self._operation_modes[1])
 
-    async def send_command(self) -> None:
+    async def send_command(self, *, from_user: bool = True) -> None:
         """Send the code matching the current mode/fan/swing/temperature.
 
         Raises HomeAssistantError if the command cannot be delivered, so the
         caller does not publish a state that was never transmitted.
+
+        ``from_user`` is False when a re-assert is replaying the current state
+        rather than a person asking for something new.
         """
         async with self._temp_lock:
             self._on_by_remote = False
@@ -660,6 +707,13 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
             # mutator: this is the single funnel they all pass through, so a
             # mutator added later cannot forget.
             self._preset_mode = PRESET_NONE
+            # A command from the user is a fresh start for the re-assert budget:
+            # whatever was failing before, they have asked for something now.
+            # Guarded, because a re-assert comes through here too and resetting
+            # the budget it is spending would make the cap unreachable.
+            if from_user:
+                self._reassert_attempts = 0
+                self._reassert_suspended = False
 
             if self._hvac_mode == HVACMode.OFF:
                 off_command = self._commands.get("off")
@@ -699,6 +753,9 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
             await asyncio.sleep(self._delay)
 
         await self._controller.send(command)
+        # Recorded after a successful send, so the settle window starts from a
+        # transmission that actually happened.
+        self._last_transmit = dt_util.utcnow()
 
     def _resolve_command(self) -> Any:
         """Return the code for the current state, tolerating sparse files.
@@ -767,32 +824,169 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
     async def _async_power_sensor_changed(
         self, event: Event[EventStateChangedData]
     ) -> None:
-        """Track the device being switched on or off by its own remote."""
+        """Track the device being switched on or off by its own remote.
+
+        With power_sensor_reassert off — the default, and therefore every
+        configuration that exists today — this adopts the sensor's reading and
+        nothing else, exactly as it always has.
+
+        With it on, one direction gains a transmission and the other deliberately
+        does not. See _async_handle_contradiction.
+        """
         old_state = event.data["old_state"]
         new_state = event.data["new_state"]
 
-        if new_state is None:
+        if new_state is None or new_state.state not in (STATE_ON, STATE_OFF):
+            # unavailable, unknown, or anything else: no adopt, no re-assert, no
+            # counting. A sensor dropping out says nothing about the device.
             return
 
         if old_state is not None and new_state.state == old_state.state:
             return
 
-        if new_state.state == STATE_ON and self._hvac_mode == HVACMode.OFF:
-            self._on_by_remote = True
-            # 'on' is not a valid hvac_mode, so guess the real one: HA rejects
-            # any state that is not in hvac_modes. With power_sensor_restore_state
-            # the guess is the mode the unit last ran in; without it the entity
-            # reports the first mode the file offers and claims to know no more.
-            if self._power_sensor_restore_state:
-                self._hvac_mode = self._last_on_operation or self._operation_modes[1]
-            else:
-                self._hvac_mode = self._operation_modes[1]
-            self.async_write_ha_state()
+        # The sensor coming back from unavailable, or its first reading after a
+        # restart, is an artefact of Home Assistant rather than a missed command.
+        first_reading = old_state is None or old_state.state not in (
+            STATE_ON,
+            STATE_OFF,
+        )
 
-        if new_state.state == STATE_OFF:
+        if new_state.state == STATE_ON and self._hvac_mode == HVACMode.OFF:
+            self._adopt_sensor_on()
+            self.async_write_ha_state()
+            return
+
+        if new_state.state == STATE_OFF and self._hvac_mode != HVACMode.OFF:
+            if self._reassert and not first_reading:
+                await self._async_handle_contradiction()
+                return
             self._on_by_remote = False
             self._hvac_mode = HVACMode.OFF
             self.async_write_ha_state()
+
+        # Note what does *not* happen here: the sensor agreeing does not reset
+        # the attempt counter. Every second 'off' event needs an intervening
+        # 'on', so resetting on agreement would make the cap unreachable and the
+        # warning below dead code. Only a command from the user clears it —
+        # three nudges with nobody touching the thermostat in between means
+        # something is wrong with the emitter, not with the last frame.
+
+    def _adopt_sensor_on(self) -> None:
+        """Believe the sensor when it says the device is running.
+
+        'on' is not a valid hvac_mode, so the real one has to be guessed: Home
+        Assistant rejects any state that is not in hvac_modes. With
+        power_sensor_restore_state the guess is the mode the unit last ran in;
+        without it the entity reports the first mode the file offers and claims
+        to know no more.
+        """
+        self._on_by_remote = True
+        if self._power_sensor_restore_state:
+            self._hvac_mode = self._last_on_operation or self._operation_modes[1]
+        else:
+            self._hvac_mode = self._operation_modes[1]
+
+    async def _async_handle_contradiction(self) -> None:
+        """Re-send the current state when the sensor says the device is off.
+
+        The asymmetry here is the heart of the feature, and it is deliberate.
+
+        Sensor *on* while the entity wants *off* is never re-asserted — that case
+        is overwhelmingly a person who has just picked up the original remote, and
+        switching their air conditioner off because a sensor flickered is the
+        worst thing this could do. That direction keeps adopting, and
+        _on_by_remote keeps its full existing meaning.
+
+        Sensor *off* while the entity wants a running mode is the failure this
+        exists for: a dropped IR frame, a hand in the beam, a unit that ignored
+        the packet. Because _on_by_remote is only ever set in the direction
+        re-assert refuses to act on, the two features cannot contradict.
+        """
+        if self._within_settle_window():
+            # The sensor is catching up with something we just sent.
+            return
+
+        if self._reassert_attempts >= REASSERT_MAX_ATTEMPTS:
+            if not self._reassert_suspended:
+                self._reassert_suspended = True
+                _LOGGER.warning(
+                    "Device code %s: %s still reports off after %s attempts to "
+                    "re-send the state, so %s is giving up and following the "
+                    "sensor. Check the emitter, or turn off %s",
+                    self._device_code,
+                    self._power_sensor,
+                    REASSERT_MAX_ATTEMPTS,
+                    self.entity_id,
+                    CONF_POWER_SENSOR_REASSERT,
+                )
+            self._on_by_remote = False
+            self._hvac_mode = HVACMode.OFF
+            self.async_write_ha_state()
+            return
+
+        self._reassert_attempts += 1
+        await self._async_reassert("the power sensor reports off")
+        # The believed state has not changed, but reassert_attempts has, and it
+        # is published so that "is it fighting the device?" is answerable without
+        # reading the log.
+        self.async_write_ha_state()
+
+    def _within_settle_window(self) -> bool:
+        """Return whether we transmitted too recently to trust a contradiction."""
+        if self._last_transmit is None:
+            return False
+        elapsed = dt_util.utcnow() - self._last_transmit
+        return elapsed.total_seconds() < REASSERT_SETTLE_SECONDS
+
+    async def _async_reassert(self, reason: str) -> None:
+        """Re-send whatever the entity currently believes the device is doing.
+
+        Deliberately not wrapped in optimistic_state: no state is changing, so a
+        failure has nothing to roll back. It is swallowed rather than raised
+        because both callers are background — a state-change listener and a
+        timer — and neither has anywhere to report to.
+        """
+        try:
+            if self._preset_mode != PRESET_NONE:
+                # The ordinary state frame is exactly what clears a preset, so
+                # re-sending it here would quietly cancel the Turbo the entity
+                # is claiming to be in.
+                await self.send_preset_command(self._preset_mode)
+            else:
+                await self.send_command(from_user=False)
+        except HomeAssistantError as err:
+            _LOGGER.debug(
+                "Device code %s: re-assert (%s) failed: %s",
+                self._device_code,
+                reason,
+                err,
+            )
+
+    async def _async_reassert_tick(self, _now) -> None:
+        """Re-send the current state on a timer, for a unit that drifts.
+
+        Independent of the power sensor: this exists for an air conditioner that
+        forgets its setpoint after a power blip, which no sensor would reveal.
+        """
+        if self._hvac_mode == HVACMode.OFF:
+            # Transmitting 'off' at a unit somebody has just switched on by hand
+            # is the same fight the contradiction path refuses to pick.
+            return
+
+        if self._reassert_suspended or self._within_settle_window():
+            return
+
+        # Without the re-assert option the sensor is authoritative, and it says
+        # there is nothing running to refresh.
+        if (
+            self._power_sensor
+            and not self._reassert
+            and (state := self.hass.states.get(self._power_sensor))
+            and state.state == STATE_OFF
+        ):
+            return
+
+        await self._async_reassert("the periodic refresh")
 
     @callback
     def _async_update_temp(self, state) -> None:

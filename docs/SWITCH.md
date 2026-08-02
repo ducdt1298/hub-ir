@@ -26,6 +26,8 @@ entity reloads itself when you save.
 | `controller_data` | string | required | The `entity_id` of the Broadlink remote **(must be an already configured device)** |
 | `delay` | number | optional | Seconds between the codes of a multi-code command. The default is 0.5 |
 | `power_sensor` | string | optional | *entity_id* for a sensor that reports whether the device is really `on` or `off`. Accepts only on/off states |
+| `power_sensor_reassert` | boolean | optional | Re-send `on` when the `power_sensor` says the device is off but Home Assistant thinks it is on. Never transmits in the other direction. Ignored on a toggle-only remote — see below |
+| `reassert_interval` | number | optional | Re-send the current state every N minutes. `0`, the default, disables it |
 
 ## The device file
 
@@ -82,6 +84,25 @@ Without a `power_sensor` the state is a belief, not an observation, so the entit
 reports `assumed_state: true` and Home Assistant shows two separate buttons
 rather than one toggle that can drift out of step. Set a `power_sensor` and the
 state becomes a reading — adopted at startup, not only when it next changes.
+
+## When the power sensor disagrees
+
+IR is open-loop, so a dropped frame leaves Home Assistant believing a state the
+device is not in. With `power_sensor_reassert` a sensor that says **off** while
+Home Assistant thinks the device is on causes `on` to be **re-sent**. A sensor
+that says **on** while Home Assistant thinks it is off never transmits anything —
+that is almost always somebody with the original remote.
+
+There is a one-minute settle window after any command, and it gives up after
+three attempts with one warning. `reassert_attempts` is published as an
+attribute. The full reasoning is in
+[CLIMATE.md](CLIMATE.md#when-the-power-sensor-disagrees); it is the same
+mechanism.
+
+**Both options are ignored on a toggle-only remote**, with a warning at startup.
+Nothing in a toggle pair is absolute, so re-sending that one code when the sensor
+disagrees could switch the device either way — and could oscillate for ever. That
+needs `on` and `off` recorded separately.
 
 ## Other buttons
 

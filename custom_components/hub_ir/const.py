@@ -24,6 +24,8 @@ CONF_TEMPERATURE_SENSOR = "temperature_sensor"
 CONF_HUMIDITY_SENSOR = "humidity_sensor"
 CONF_POWER_SENSOR = "power_sensor"
 CONF_POWER_SENSOR_RESTORE_STATE = "power_sensor_restore_state"
+CONF_POWER_SENSOR_REASSERT = "power_sensor_reassert"
+CONF_REASSERT_INTERVAL = "reassert_interval"
 CONF_SOURCE_NAMES = "source_names"
 CONF_DEVICE_CLASS = "device_class"
 
@@ -38,6 +40,20 @@ CONF_PLATFORM = "platform"
 CONF_DEVICE_INFO = "device_info"
 
 DEFAULT_DELAY = 0.5
+
+# --------------------------------------------------------------------------
+# Re-asserting a state a power sensor contradicts
+# --------------------------------------------------------------------------
+#
+# A power sensor lags our transmission: a compressor takes seconds to draw
+# current and a smart plug reports on its own schedule. A contradiction inside
+# this window is the sensor catching up, not a command that went missing.
+REASSERT_SETTLE_SECONDS = 60
+
+# A broken IR path — flat batteries, a blocked emitter, furniture moved in front
+# of the unit — must not turn into an endless stream of transmissions that
+# fights whoever is in the room.
+REASSERT_MAX_ATTEMPTS = 3
 
 DEFAULT_NAMES = {
     "climate": "HubIR Climate",

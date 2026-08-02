@@ -32,6 +32,74 @@ any given device, not both.
 | `humidity_sensor` | string | optional | *entity_id* for a humidity sensor |
 | `power_sensor` | string | optional | *entity_id* for a sensor that monitors whether your device is actually `on` or `off`. This may be a power monitor sensor. (Accepts only on/off states) |
 | `power_sensor_restore_state` | boolean | optional | If `power_sensor` is set, and the device is likely to turn off and back on while still in the set mode (for instance, a minisplit cycling on and off while in heating or cooling mode), setting this to `true` will cause the climate state to update dynamically, following the state of the `power_sensor`. When the sensor reports `on` while Home Assistant thought the unit was off, `true` reports the mode it last ran in and `false` reports the first mode the device file lists. |
+| `power_sensor_reassert` | boolean | optional | Re-send the state when the `power_sensor` says the unit is off but Home Assistant thinks it is running. Never transmits in the other direction. See [below](#when-the-power-sensor-disagrees). |
+| `reassert_interval` | number | optional | Re-send the current state every N minutes, for a unit that forgets its setpoint. `0`, the default, disables it. |
+
+## When the power sensor disagrees
+
+IR is open-loop: nothing reports back, so if a frame is dropped — a hand in the
+beam, flat batteries, furniture moved in front of the unit — Home Assistant goes
+on believing a state the unit is not in. A `power_sensor` used to only ever
+*correct the entity*. Two options let it correct the **device** instead.
+
+Both are off by default, and with them off behaviour is exactly what it has always
+been.
+
+| Option | Type | Default |
+| ------ | :--: | :-----: |
+| `power_sensor_reassert` | boolean | `false` |
+| `reassert_interval` | number, minutes (`0` disables) | `0` |
+
+### `power_sensor_reassert`
+
+Only one direction acts, and the asymmetry is the whole design:
+
+* Sensor says **off** while Home Assistant thinks the unit is running → the state
+  is **re-sent**. This is the dropped frame this option exists for.
+* Sensor says **on** while Home Assistant thinks the unit is off → **nothing is
+  transmitted**, ever. The entity just adopts the reading, exactly as before.
+  That case is overwhelmingly somebody who has picked up the original remote, and
+  switching their air conditioner off because a sensor flickered is the worst
+  thing this could do.
+
+Because the entity only sets `on_by_remote` in the direction re-assert refuses to
+act on, the two cannot contradict each other.
+
+The envelope around it:
+
+* **A one-minute settle window.** A contradiction within a minute of our own
+  transmission is ignored entirely — a compressor takes seconds to draw current
+  and a smart plug reports on its own schedule. *A sensor that reports less often
+  than once a minute is not suitable for this; use `reassert_interval` instead.*
+* **Three attempts.** After three re-asserts with nobody touching the thermostat
+  in between, it logs one warning naming the entity, the sensor and this option,
+  then follows the sensor. Any command from you clears the count. Three failed
+  nudges means the emitter is the problem, not the last frame.
+* **`unavailable`, `unknown` and anything else are ignored** — no adopt, no
+  re-assert, no counting. So is the first reading after the sensor comes back,
+  because that is an artefact of a restart rather than a missed command.
+* **`reassert_attempts`** is published as an attribute, always, so "is it
+  fighting the device?" is answerable from a dashboard.
+
+### `reassert_interval`
+
+Re-sends the current state every N minutes, for a unit that forgets its setpoint
+after a power blip — something no sensor would reveal. It sends nothing while the
+entity is off (transmitting `off` at a unit somebody has just switched on by hand
+is the same fight as above), skips a tick inside the settle window, and never
+raises: a background timer that threw would be worse than a refresh that was
+missed.
+
+If a preset is active it re-sends **the preset's** code, not the ordinary state
+frame — because the ordinary frame is exactly what clears a preset.
+
+### Not available on the other platforms
+
+Deliberately. A great many televisions and lights use **one IR code for both on
+and off**, so a re-assert there is a coin flip that can switch the device off. A
+fan's `on_by_remote` models "running at a speed we cannot read", so there is no
+single state to re-assert. This is a judgement about the hardware, not an
+oversight.
 
 ## One-touch buttons: Turbo, Eco, Sleep, Quiet
 

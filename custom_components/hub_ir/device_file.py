@@ -52,11 +52,16 @@ FAHRENHEIT_THRESHOLD = 40
 # these prefixes count as annotations.
 ANNOTATION_PREFIXES = ("_", "$")
 
+# Free-form commands the four entity models cannot express — a television's
+# arrow keys, an air conditioner's LED toggle — live under this key, reachable
+# by name from the service rather than from an entity control.
+EXTRAS_KEY = "extras"
+
 # Keys at the top of a command tree that are never an operation mode. climate.py
 # walks the tree by position and substitutes a sibling when the mode it wants is
-# missing, so without this it could hand back the 'off' code — or, once groups
-# like 'presets' exist, a whole dict that then gets walked as a fan-mode level.
-RESERVED_COMMAND_KEYS = frozenset({"on", "off"})
+# missing, so without this it could hand back the 'off' code, or a whole group
+# dict that then gets walked as if it were the fan-mode level.
+RESERVED_COMMAND_KEYS = frozenset({"on", "off", EXTRAS_KEY})
 
 # Broadlink packet types: 0x26 is IR, the rest are the RF variants.
 PACKET_IR = 0x26
@@ -233,6 +238,7 @@ def validate(platform: str, data: Any, device_code: str = "") -> Report:
     else:
         _check_placeholders(data["commands"], report)
         _check_codes_decode(data, report, platform, device_code)
+        _check_extras(data["commands"], report)
 
     if platform == "climate":
         _check_climate(data, report)
@@ -262,6 +268,29 @@ def _check_placeholders(commands: Any, report: Report) -> None:
         f"{len(placeholders)} command(s) have no code recorded: {shown}{more}. "
         "The integration skips these and refuses to transmit them"
     )
+
+
+def _check_extras(commands: dict, report: Report, group: str = EXTRAS_KEY) -> None:
+    """Check that a free-form command group is a flat mapping of names to codes.
+
+    Flat is the contract the service's command paths depend on: 'extras/menu'
+    names one code, so a nested object there would be a path that resolves to a
+    dict nobody can transmit.
+    """
+    if group not in commands:
+        return
+
+    entries = commands[group]
+    if not isinstance(entries, dict):
+        report.error(f"commands.{group} must be an object mapping names to codes")
+        return
+
+    for name, value in entries.items():
+        if isinstance(value, dict):
+            report.error(
+                f"commands.{group}[{name!r}] must be a code or a list of codes, "
+                "not a nested object"
+            )
 
 
 def _check_codes_decode(
@@ -612,6 +641,7 @@ def _climate_plan(spec: dict[str, Any]) -> list[PlanCell]:
                         )
                     )
 
+    cells.extend(_extra_cells(spec))
     return cells
 
 
@@ -636,6 +666,7 @@ def _fan_plan(spec: dict[str, Any]) -> list[PlanCell]:
     if spec.get("hasOscillate"):
         cells.append(PlanCell("oscillate", "Oscillate", [["oscillate"]], "Extras"))
 
+    cells.extend(_extra_cells(spec))
     return cells
 
 
@@ -653,7 +684,27 @@ def _light_plan(spec: dict[str, Any]) -> list[PlanCell]:
         cells.append(PlanCell("warmer", "Warmer", [["warmer"]], "Colour"))
     if spec.get("hasNight"):
         cells.append(PlanCell("night", "Night light", [["night"]], "Brightness"))
+    cells.extend(_extra_cells(spec))
     return cells
+
+
+def _extra_cells(spec: dict[str, Any]) -> list[PlanCell]:
+    """Return the capture cells for a spec's free-form extra commands.
+
+    Every platform gets these. Four entity models cannot express a television's
+    arrow keys, a projector's lens shift or an air conditioner's LED toggle, and
+    a code nobody can name is a code no automation can reach.
+    """
+    return [
+        PlanCell(
+            f"{EXTRAS_KEY}/{name}",
+            f"Extra · {name}",
+            [[EXTRAS_KEY, name]],
+            "Extra buttons",
+        )
+        for name in spec.get("extraCommands") or []
+        if str(name) and not str(name).startswith(ANNOTATION_PREFIXES)
+    ]
 
 
 _MEDIA_PLAYER_BUTTONS = (
@@ -681,6 +732,7 @@ def _media_player_plan(spec: dict[str, Any]) -> list[PlanCell]:
         )
         for source in spec.get("sources") or []
     )
+    cells.extend(_extra_cells(spec))
     return cells
 
 
@@ -770,6 +822,14 @@ def spec_from_device_file(platform: str, data: dict[str, Any]) -> dict[str, Any]
     spec: dict[str, Any] = {
         "manufacturer": data.get("manufacturer") or "",
         "supportedModels": list(data.get("supportedModels") or []),
+        # Recovered by presence rather than by is_recorded, the way 'buttons' is:
+        # a name whose code was never captured should still be offered for
+        # capture rather than silently dropped from the file.
+        "extraCommands": [
+            name
+            for name in commands.get(EXTRAS_KEY) or {}
+            if not str(name).startswith(ANNOTATION_PREFIXES)
+        ],
     }
 
     if platform == "climate":

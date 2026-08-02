@@ -349,6 +349,38 @@ async def test_a_missing_mode_never_substitutes_a_reserved_key(
     assert hass.states.get("climate.s_ac").state == HVACMode.COOL
 
 
+async def test_a_missing_mode_never_substitutes_a_command_group(
+    hass: HomeAssistant, write_device_file, sent_commands, setup_platform
+) -> None:
+    """An 'extras' dict picked as a mode would be walked as the fan-mode level.
+
+    That is worse than substituting the off code: the entity would transmit
+    whichever extra button happened to be recorded first, with no clue why.
+    """
+    data = {
+        **CLIMATE_DEVICE_DATA,
+        "commands": {
+            "off": "b2Zm",
+            "extras": {"led": "bGVk"},
+            "heat": {"low": {"16": "aGVhdDE2", "17": "aGVhdDE3"}},
+        },
+    }
+    write_device_file("climate", 9016, data)
+    await setup_platform(
+        CLIMATE_DOMAIN,
+        {**CONFIG, "name": "X AC", "unique_id": "x_ac", "device_code": 9016},
+    )
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {ATTR_ENTITY_ID: "climate.x_ac", ATTR_HVAC_MODE: HVACMode.COOL},
+        blocking=True,
+    )
+
+    assert payloads(sent_commands) == [["b64:aGVhdDE2"]]
+
+
 async def test_a_mode_with_nothing_to_fall_back_on_raises(
     hass: HomeAssistant, write_device_file, sent_commands, setup_platform
 ) -> None:

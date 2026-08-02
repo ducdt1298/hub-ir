@@ -443,6 +443,117 @@ def test_a_skipped_capture_becomes_a_placeholder_not_a_missing_key() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Free-form extra commands
+# ---------------------------------------------------------------------------
+
+_EXTRA_SPECS: dict[str, dict[str, Any]] = {
+    "climate": {
+        "minTemperature": 16,
+        "maxTemperature": 17,
+        "precision": 1,
+        "operationModes": ["cool"],
+        "fanModes": ["low"],
+    },
+    "fan": {"speed": ["low"]},
+    "light": {},
+    "media_player": {"buttons": ["on"]},
+}
+
+
+@pytest.mark.parametrize("platform", sorted(_EXTRA_SPECS))
+def test_extra_commands_become_capture_cells(platform: str) -> None:
+    """Every platform can record buttons its entity model cannot express."""
+    spec = {**_EXTRA_SPECS[platform], "extraCommands": ["menu", "ok"]}
+    cells = capture_plan(platform, spec)
+
+    assert [cell["key"] for cell in cells[-2:]] == ["extras/menu", "extras/ok"]
+    assert cells[-2]["targets"] == [["extras", "menu"]]
+    assert cells[-1]["group"] == "Extra buttons"
+
+
+@pytest.mark.parametrize("platform", sorted(_EXTRA_SPECS))
+def test_a_spec_without_extras_plans_exactly_what_it_did_before(platform: str) -> None:
+    """None of the 407 shipped files declares extras; none may gain a cell."""
+    spec = _EXTRA_SPECS[platform]
+
+    assert capture_plan(platform, spec) == capture_plan(
+        platform, {**spec, "extraCommands": []}
+    )
+
+
+def test_extras_round_trip_through_the_template_loader() -> None:
+    """Re-opening a file must not quietly drop the buttons it already holds."""
+    spec = {**_EXTRA_SPECS["media_player"], "extraCommands": ["menu", "up"]}
+    plan = capture_plan("media_player", spec)
+    data = build_device_file(
+        "media_player", spec, {cell["key"]: GOOD_CODE for cell in plan}
+    )
+
+    assert data["commands"]["extras"] == {"menu": GOOD_CODE, "up": GOOD_CODE}
+    assert validate("media_player", data, "90010").errors == []
+
+    recovered = spec_from_device_file("media_player", data)
+    assert recovered["extraCommands"] == ["menu", "up"]
+    codes = codes_from_device_file("media_player", data, recovered)
+    assert codes["extras/menu"] == GOOD_CODE
+
+
+def test_an_annotation_under_extras_is_never_offered_for_capture() -> None:
+    """Transmitting a '_comment' would send its prose as a code."""
+    data = {
+        "manufacturer": "Test",
+        "supportedModels": ["T"],
+        "supportedController": "Broadlink",
+        "commandsEncoding": "Base64",
+        "commands": {"on": GOOD_CODE, "extras": {"_note": "why", "menu": GOOD_CODE}},
+    }
+
+    spec = spec_from_device_file("media_player", data)
+    assert spec["extraCommands"] == ["menu"]
+    assert validate("media_player", data, "90011").errors == []
+
+
+def test_a_nested_extras_entry_is_refused() -> None:
+    """'extras/menu' names one code, so a dict there is a path to nothing."""
+    data = {
+        "manufacturer": "Test",
+        "supportedModels": ["T"],
+        "supportedController": "Broadlink",
+        "commandsEncoding": "Base64",
+        "commands": {"on": GOOD_CODE, "extras": {"menu": {"deep": GOOD_CODE}}},
+    }
+
+    report = validate("media_player", data, "90012")
+    assert any("not a nested object" in error for error in report.errors)
+
+
+def test_an_extras_group_that_is_not_an_object_is_refused() -> None:
+    """A bare string there would be walked as if it were a mapping."""
+    data = {
+        "manufacturer": "Test",
+        "supportedModels": ["T"],
+        "supportedController": "Broadlink",
+        "commandsEncoding": "Base64",
+        "commands": {"on": GOOD_CODE, "extras": GOOD_CODE},
+    }
+
+    report = validate("media_player", data, "90013")
+    assert any("mapping names to codes" in error for error in report.errors)
+
+
+def test_an_extras_placeholder_is_reported_as_a_gap() -> None:
+    """A skipped extra is a gap like any other, named by its path."""
+    spec = {**_EXTRA_SPECS["fan"], "extraCommands": ["timer"]}
+    plan = capture_plan("fan", spec)
+    codes = {cell["key"]: GOOD_CODE for cell in plan if cell["key"] != "extras/timer"}
+    data = build_device_file("fan", spec, codes)
+
+    report = validate("fan", data, "90014")
+    assert report.errors == []
+    assert any("extras/timer" in warning for warning in report.warnings)
+
+
+# ---------------------------------------------------------------------------
 # Starting from a file that already exists
 # ---------------------------------------------------------------------------
 

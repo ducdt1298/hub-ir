@@ -186,6 +186,9 @@ Per-platform options and the full code tables:
 - [Fan](docs/FAN.md) — 16 device files
 - [Light](docs/LIGHT.md) — 5 device files
 - [Learning panel](docs/PANEL.md) — recording a device the tables do not cover
+- [Services](docs/SERVICES.md) — `hub_ir.send_command` and `hub_ir.send_code`,
+  for a television's menu key, an air conditioner's LED toggle, and everything
+  else the four entity models cannot offer as a control
 
 Device files are downloaded from this repository on first use and cached under
 `custom_components/hub_ir/codes/<platform>/`. To use your own recording,

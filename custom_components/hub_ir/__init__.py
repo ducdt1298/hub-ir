@@ -103,9 +103,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # frontend stacks, and importing them while the module is first loaded would
     # drag that cost into every platform setup.
     from .frontend import async_register_panel  # noqa: PLC0415
+    from .services import async_register_services  # noqa: PLC0415
     from .websocket import async_register  # noqa: PLC0415
 
     async_register(hass)
+    async_register_services(hass)
     await async_register_panel(hass)
 
     return True

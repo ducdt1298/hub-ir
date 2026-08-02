@@ -52,6 +52,7 @@ from . import (
 from .const import CONF_DEVICE_INFO
 from .controller import get_controller
 from .device_file import ANNOTATION_PREFIXES, PRESETS_KEY, RESERVED_COMMAND_KEYS
+from .services import HubIRCommandMixin, async_register_entity_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ async def async_setup_platform(
 
     warn_if_no_unique_id("climate", config)
 
+    async_register_entity_services()
     async_add_entities([HubIRClimate(hass, config, device_data)])
 
 
@@ -128,10 +130,11 @@ async def async_setup_entry(
         # so anything left is permanent: retrying would only repeat it.
         raise ConfigEntryError(str(err)) from err
 
+    async_register_entity_services()
     async_add_entities([entity])
 
 
-class HubIRClimate(ClimateEntity, RestoreEntity):
+class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
     """A climate entity driven by IR/RF codes from a device file."""
 
     _attr_should_poll = False

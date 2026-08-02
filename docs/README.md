@@ -7,6 +7,7 @@ Setup instructions and the device-code tables for each platform:
 * [Fan platform](FAN.md)
 * [Light platform](LIGHT.md)
 * [Learning panel](PANEL.md) — recording a device the tables do not cover
+* [Services](SERVICES.md) — sending the codes no entity control can reach
 
 Installation, migration from SmartIR and the list of changes against upstream
 are in the [top-level README](../README.md).

@@ -35,6 +35,7 @@ from . import (
 )
 from .const import CONF_DEVICE_INFO
 from .controller import get_controller
+from .services import HubIRCommandMixin, async_register_entity_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ async def async_setup_platform(
 
     warn_if_no_unique_id("light", config)
 
+    async_register_entity_services()
     async_add_entities([HubIRLight(hass, config, device_data)])
 
 
@@ -96,6 +98,7 @@ async def async_setup_entry(
         # so anything left is permanent: retrying would only repeat it.
         raise ConfigEntryError(str(err)) from err
 
+    async_register_entity_services()
     async_add_entities([entity])
 
 
@@ -115,7 +118,7 @@ def closest_match(value: float | None, values: list[float]) -> int:
     return len(values) - 1
 
 
-class HubIRLight(LightEntity, RestoreEntity):
+class HubIRLight(HubIRCommandMixin, LightEntity, RestoreEntity):
     """A light entity driven by IR/RF codes from a device file."""
 
     _attr_should_poll = False

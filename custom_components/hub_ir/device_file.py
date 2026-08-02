@@ -57,6 +57,10 @@ ANNOTATION_PREFIXES = ("_", "$")
 # by name from the service rather than from an entity control.
 EXTRAS_KEY = "extras"
 
+# How a command path is spelled, in the service and everywhere else. PlanCell.key
+# and the validator's gap reports already use this, so there is one spelling.
+COMMAND_PATH_SEPARATOR = "/"
+
 # Turbo, Eco, Sleep and friends. Flat, one code each: on a real remote these
 # buttons transmit the unit's whole state with one extra bit flipped, so they
 # are not another dimension of the mode/fan/swing/temperature matrix. Making
@@ -150,6 +154,50 @@ def has_any_code(commands: Any) -> bool:
     if isinstance(commands, list):
         return any(has_any_code(entry) for entry in commands)
     return is_recorded(commands)
+
+
+def resolve_command(commands: Any, path: str) -> Any:
+    """Return the code a slash-separated command path names, or None.
+
+    The separator is '/' because that is already how this project spells a
+    command path: PlanCell.key joins with it ('cool/low/16', 'sources/HDMI1',
+    'presets/turbo', 'extras/menu') and _check_placeholders prints gaps the same
+    way, so the paths a user has already seen in the panel and in the validator
+    are the paths the service accepts.
+
+    An exact key wins at every level before the path is split, so a source
+    called 'Channel 1.2' or even 'A/B' still resolves. Annotation keys are never
+    reachable: transmitting a '_comment' would send its prose as a code.
+    """
+    node = commands
+    rest = str(path)
+
+    while True:
+        if not isinstance(node, dict):
+            return None
+        if rest in node and not rest.startswith(ANNOTATION_PREFIXES):
+            return node[rest]
+        if COMMAND_PATH_SEPARATOR not in rest:
+            return None
+
+        head, rest = rest.split(COMMAND_PATH_SEPARATOR, 1)
+        if head.startswith(ANNOTATION_PREFIXES) or head not in node:
+            return None
+        node = node[head]
+
+
+def command_paths(commands: Any) -> list[str]:
+    """Return every command path a tree offers, in the order it stores them.
+
+    Used to tell someone what they could have meant when a path does not
+    resolve, which is the difference between a typo taking a minute and taking
+    an afternoon.
+    """
+    return [
+        COMMAND_PATH_SEPARATOR.join(path)
+        for path, value in walk(commands)
+        if not is_documentation(path) and is_recorded(value)
+    ]
 
 
 def is_documentation(path: tuple[str, ...]) -> bool:

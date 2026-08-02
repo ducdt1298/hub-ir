@@ -35,7 +35,6 @@ from . import (
     remote_entity_id,
 )
 from .const import CONF_CONTROLLER_DATA, CONF_DEVICE_CODE, CONF_PLATFORM, SOURCE_PANEL
-from .controller import BROADLINK_CONTROLLER, get_controller
 from .device_file import (
     CUSTOM_CODE_START,
     PLATFORMS,
@@ -46,6 +45,7 @@ from .device_file import (
     validate,
 )
 from .learn import async_learn_ir_code
+from .services import async_send_raw_code
 
 PLATFORM_SELECTOR = vol.In(PLATFORMS)
 
@@ -326,12 +326,13 @@ async def ws_send(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Transmit a code, so it can be checked before it is kept."""
-    controller = get_controller(
-        hass, BROADLINK_CONTROLLER, "Base64", msg["remote_entity_id"], 0.5
-    )
+    """Transmit a code, so it can be checked before it is kept.
+
+    Shares its send path with hub_ir.send_code, so a code the panel proved works
+    and a code an automation sends cannot come out differently.
+    """
     try:
-        await controller.send(msg["code"])
+        await async_send_raw_code(hass, msg["remote_entity_id"], msg["code"])
     except HomeAssistantError as err:
         connection.send_error(msg["id"], "send_failed", str(err))
         return

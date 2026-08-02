@@ -1,0 +1,57 @@
+send_command:
+  target:
+    entity:
+      integration: hub_ir
+  fields:
+    command:
+      required: true
+      example: extras/menu
+      selector:
+        text:
+    repeat:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    delay:
+      default: 0.4
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 0.1
+          mode: box
+          unit_of_measurement: seconds
+
+send_code:
+  fields:
+    remote_entity_id:
+      required: true
+      example: remote.bedroom_remote
+      selector:
+        entity:
+          domain: remote
+    code:
+      required: true
+      example: JgBQAAABKZMSEhI3
+      selector:
+        object:
+    encoding:
+      default: Base64
+      selector:
+        select:
+          options:
+            - Base64
+            - Hex
+            - Pronto
+    delay:
+      default: 0.5
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 0.1
+          mode: box
+          unit_of_measurement: seconds

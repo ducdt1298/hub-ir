@@ -153,5 +153,47 @@
         "receiver": "Receiver"
       }
     }
+  },
+  "services": {
+    "send_command": {
+      "name": "Send command",
+      "description": "Send a code from a HubIR entity's own device file, named by its path. For the buttons the entity does not model: a menu key, an arrow, an LED toggle. Does not change the entity's state.",
+      "fields": {
+        "command": {
+          "name": "Command",
+          "description": "Path to the code, separated by '/'. For example 'extras/menu', 'presets/turbo', 'sources/HDMI1' or 'cool/low/16'."
+        },
+        "repeat": {
+          "name": "Repeat",
+          "description": "How many times to send the code. Useful for a volume ramp."
+        },
+        "delay": {
+          "name": "Delay",
+          "description": "Seconds to wait between repeats."
+        }
+      }
+    },
+    "send_code": {
+      "name": "Send code",
+      "description": "Send a raw code through a Broadlink remote, without a HubIR entity. For a code that is not in a device file yet.",
+      "fields": {
+        "remote_entity_id": {
+          "name": "Remote",
+          "description": "The Broadlink remote entity to transmit through."
+        },
+        "code": {
+          "name": "Code",
+          "description": "One code, or a list of codes to send in turn. A list is how a two-packet toggle button is stored."
+        },
+        "encoding": {
+          "name": "Encoding",
+          "description": "How the code is written. Base64 is what the panel records."
+        },
+        "delay": {
+          "name": "Delay",
+          "description": "Seconds to wait between the codes of a list."
+        }
+      }
+    }
   }
 }

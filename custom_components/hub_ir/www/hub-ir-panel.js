@@ -207,6 +207,334 @@ const EXTRA_PRESETS = {
   switch: ["input_cd", "input_aux", "volume_up", "volume_down"],
 };
 
+/**
+ * The panel in other languages.
+ *
+ * English is not in here: every call site passes its English text as the
+ * fallback argument, so a key that is missing — or a language nobody has
+ * translated — reads as English rather than as a raw key. That also keeps the
+ * English wording next to the markup it belongs to, where it can be read.
+ *
+ * Only prose is translated. Mode names, fan speeds, source names and the
+ * media player's button keys are keys in the device file, so they are left
+ * exactly as they are wherever they appear — translating them in one screen
+ * and not the next is how a capture session stops making sense.
+ */
+const STRINGS = {
+  vi: {
+    // Setup, card 1
+    "step.teaching": "Bạn đang dạy thiết bị gì?",
+    "label.deviceType": "Loại thiết bị",
+    "label.remote": "Bộ điều khiển Broadlink",
+    "label.newDeviceCode": "Mã thiết bị mới",
+    "error.noRemote":
+      "Không tìm thấy bộ điều khiển Broadlink nào. Hãy cài đặt tích hợp " +
+      "Broadlink trước — chỉ remote của nó học được mã.",
+    "overwrite.exists":
+      "Mã thiết bị {code} đã có rồi. Lưu lại sẽ ghi đè lên nó.",
+    "chip.replaceExisting": "Ghi đè file đang có",
+    // Setup, card 2
+    "step.identify": "Nhận dạng nó",
+    "label.manufacturer": "Hãng",
+    "template.intro":
+      "Bắt đầu từ một file thiết bị gần đúng thì đỡ việc hơn nhiều so với bắt " +
+      "đầu từ số không. Nạp được bất kỳ mã đang có — các thiết lập và mọi mã " +
+      "file đó đã giữ sẽ theo sang, chỉ còn những chỗ trống là phải ghi. Lưu " +
+      "lại luôn ghi vào mã của riêng bạn, nên file gốc không bị chạm tới.",
+    "placeholder.templateCode": "ví dụ 1000",
+    "button.loadTemplate": "Nạp file thiết bị đó",
+    "label.yourRecordings": "Bản ghi của bạn:",
+    "title.download": "Tải {code}.json — giữ một bản trước khi cài lại",
+    "aria.download": "Tải {code}.json",
+    // What can it do?
+    "step.capabilities": "Nó làm được gì?",
+    "chip.reversible": "Đảo chiều được",
+    "chip.oscillates": "Quay được",
+    "chip.nightLight": "Có đèn ngủ",
+    "switch.toggleNote":
+      "Phần lớn remote có nút bật và nút tắt riêng. Một số — máy chiếu là hay " +
+      "gặp nhất — chỉ có một nút nguồn mà mã của nó luân phiên; tích vào đây " +
+      "thì panel sẽ ghi đúng cái nút đó.",
+    "chip.toggleOnePower": "Một nút nguồn dùng chung cho bật và tắt",
+    // Climate spec
+    "step.temperaturesModes": "Nhiệt độ và các chế độ",
+    "label.min": "Thấp nhất",
+    "label.max": "Cao nhất",
+    "label.step": "Bước nhảy",
+    "label.unit": "Đơn vị",
+    "label.operationModes": "Các chế độ hoạt động",
+    "chip.separateOn": "Có mã bật nguồn riêng",
+    "heading.whichModesIgnore": "Chế độ nào bỏ qua cái gì?",
+    "climate.modeOptionsNote":
+      "Phần lớn máy bỏ qua nhiệt độ ở <em>dry</em> và <em>fan only</em>, và " +
+      "một số bỏ qua cả tốc độ quạt. Khai ở đây chính là khác biệt giữa bấm " +
+      "remote một trăm lần và hai trăm lần — cùng một mã được ghi vào mọi chỗ " +
+      "nó áp dụng.",
+    "table.mode": "Chế độ",
+    "table.respondsFan": "Theo tốc độ quạt",
+    "table.respondsTemp": "Theo nhiệt độ",
+    "word.yes": "có",
+    "word.no": "không",
+    // Presets
+    "step.oneTouch": "Nút một chạm",
+    "step.oneTouchLong": "Nút một chạm (Turbo, Eco, Sleep)",
+    "preset.needModes":
+      "Hãy chọn ít nhất một chế độ hoạt động và một tốc độ quạt trước — một " +
+      "nút một chạm phải được ghi từ một trạng thái gọi được tên.",
+    "preset.explain":
+      "Trên phần lớn máy điều hoà, mấy nút này <strong>không</strong> gửi một " +
+      "gói tin nhỏ kiểu &ldquo;bật turbo&rdquo;. Chúng gửi toàn bộ trạng thái " +
+      "của máy &mdash; chế độ, tốc độ quạt và nhiệt độ &mdash; với một bit " +
+      "được lật. Nghĩa là mã bạn ghi ở đây sẽ luôn kéo máy về đúng trạng thái " +
+      "mà remote đang hiển thị lúc bạn bấm. Hãy chọn trạng thái đó một lần ở " +
+      "dưới; panel sẽ đưa nó lên mọi màn hình ghi mã và viết nó vào file thiết " +
+      "bị, để về sau không ai phải đoán.",
+    "label.presetMode": "Ghi chúng từ chế độ này",
+    "label.presetFan": "…tốc độ quạt này",
+    "label.presetTemp": "…và nhiệt độ này",
+    // Extra buttons
+    "step.otherButtons": "Còn nút nào nữa không",
+    "extras.explain":
+      "Mọi thứ khác trên remote &mdash; nút menu, các mũi tên, các chữ số, nút " +
+      "bật tắt đèn LED, một nguồn vào hay dùng. Chúng không gắn vào các điều " +
+      "khiển thường của entity; chúng được gọi theo tên từ service " +
+      "<code>hub_ir.send_command</code> và từ script. Tên ngắn, viết thường thì " +
+      "dễ dùng nhất.",
+    // The list editor
+    "list.orderMatters": "— thứ tự có ý nghĩa",
+    "list.empty": "Chưa có gì.",
+    "list.use": "Dùng {items}",
+    "list.add": "Thêm",
+    "list.placeholder": "thêm {one}",
+    "aria.moveUp": "Đưa {name} lên",
+    "aria.moveDown": "Đưa {name} xuống",
+    "aria.remove": "Xoá {name}",
+    "list.models.label": "Các model",
+    "list.models.one": "model",
+    "list.fanModes.label": "Các tốc độ quạt",
+    "list.fanModes.one": "tốc độ quạt",
+    "list.fanModes.note": "Khớp với các mã bạn ghi, theo đúng thứ tự này.",
+    "list.swingModes.label": "Các vị trí đảo gió",
+    "list.swingModes.one": "vị trí đảo gió",
+    "list.swingModes.note":
+      "Để trống, trừ khi thiết lập đảo gió nằm trong gói tin của máy.",
+    "list.speed.label": "Các tốc độ",
+    "list.speed.one": "tốc độ",
+    "list.speed.note": "Chậm nhất trước.",
+    "list.brightness.label": "Các mức sáng",
+    "list.brightness.one": "mức",
+    "list.brightness.note": "Tối nhất trước, theo thang 1–255 của Home Assistant.",
+    "list.colorTemperature.label": "Các nhiệt độ màu",
+    "list.colorTemperature.one": "nhiệt độ",
+    "list.colorTemperature.note": "Theo kelvin, ấm nhất trước.",
+    "list.sources.label": "Nguồn vào và kênh",
+    "list.sources.one": "nguồn vào",
+    "list.presets.label": "Nút một chạm",
+    "list.presets.one": "nút",
+    "list.extraCommands.label": "Các nút khác",
+    "list.extraCommands.one": "nút",
+    "list.extraCommands.note":
+      "Gọi được từ service hub_ir.send_command, theo tên.",
+    "button.buildList": "Dựng danh sách mã cần ghi",
+    // Capture
+    "capture.heading": "Chĩa remote gốc vào Broadlink",
+    "capture.setRemote": "Đặt remote về đúng cái này, rồi bấm gửi:",
+    "capture.progress": "{done}/{total} · {group}",
+    "capture.allDone": "Đã xong cả {total} mã",
+    "capture.presetNote":
+      "Mã này mang theo toàn bộ trạng thái của máy, nên hãy đặt remote về " +
+      "<strong>{state}</strong> trước khi bấm.",
+    "capture.clickSquare": "Bấm vào một ô để quay lại mã đó và ghi lại.",
+    "cell.title": "{label} — bấm để quay lại mã này",
+    "button.start": "Bắt đầu ghi",
+    "button.justOne": "Chỉ mã này",
+    "button.stop": "Dừng",
+    "button.skip": "Bỏ qua",
+    "button.testLast": "Thử mã vừa ghi",
+    "chip.twoPacket": "Nút hai gói tin",
+    "capture.toggleNote":
+      "Một số remote luân phiên giữa hai gói tin cho cùng một nút — nút nguồn " +
+      "của Samsung là ca hay gặp. Panel sẽ xin Broadlink cả hai và lưu thành " +
+      "một cặp; tích hợp gửi lần lượt. Cứ để tắt, trừ khi mã đã ghi chỉ ăn " +
+      "một lần bấm cách một.",
+    "capture.listening":
+      "Đang nghe… mỗi mã chờ tối đa 30 giây. Cứ bấm tiếp; panel tự chuyển sang " +
+      "mã kế.",
+    "button.backToSettings": "Trở lại phần cài đặt",
+    "button.saveAs": "Lưu thành mã thiết bị {code}",
+    "capture.skippedNote":
+      "Đã bỏ qua {count} mã; chúng để trống và tích hợp từ chối gửi.",
+    // Saved
+    "saved.heading": "Đã lưu",
+    "saved.writtenTo": "Đã ghi vào <code>{path}</code>.",
+    "saved.worthKnowing": "Có mấy điểm nên biết:",
+    "saved.noGaps": "Không thiếu mã nào.",
+    "button.teachAnother": "Dạy một thiết bị khác",
+    // Share
+    "share.heading": "Gửi nó lên repo",
+    "share.noExport":
+      "File đã được ghi, nhưng không đọc lại được để xuất ra. Nó vẫn nằm trên " +
+      "đĩa ở đường dẫn phía trên.",
+    "share.intro":
+      "Một file thiết bị chỉ giúp được người tiếp theo nếu nó ra khỏi máy này. " +
+      "Hai việc, theo thứ tự:",
+    "button.copyJson": "Copy JSON",
+    "button.downloadFile": "Tải {filename}",
+    "share.tooBig":
+      "quá lớn cho bất kỳ URL issue nào, nên nó phải đi kèm dạng tệp đính kèm " +
+      "hoặc dán vào.",
+    "share.smallEnough": "đủ nhỏ để dán thẳng vào issue.",
+    "link.prefilledIssue": "Mở issue đã điền sẵn",
+    "share.issueNote":
+      "Hãng, model, số lượng mã và phiên bản của bạn đã được điền sẵn; hãy bỏ " +
+      "file bạn vừa copy hoặc vừa tải vào ô mà nó để trống cho bạn. " +
+      "<strong>Đường link không mang theo mã nào cả</strong>, và không có gì " +
+      "được tải lên cho tới khi bạn bấm nút trên GitHub.",
+    "button.showRaw": "Xem JSON thô",
+    "button.hideRaw": "Ẩn JSON thô",
+    "share.copied": "Đã copy. Dán vào issue, hoặc đính kèm file đã tải.",
+    // Create
+    "create.heading": "Thêm nó vào Home Assistant",
+    "create.sub": "Không YAML, không restart — entity hiện ra ngay.",
+    "label.name": "Tên",
+    "placeholder.myPlatform": "{platform} của tôi",
+    "create.remoteNote":
+      "Đã đặt sẵn đúng remote bạn dùng để ghi mã; chỉ đổi nếu thiết bị này nằm " +
+      "trước một remote khác.",
+    "button.create": "Tạo entity",
+    "button.creating": "Đang tạo…",
+    "create.yamlSummary": "Hoặc tự viết vào configuration.yaml",
+    "create.yamlNote":
+      "Chỉ nên làm nếu bạn giữ entity trong YAML. Nó cần restart, và hai cách " +
+      "cấu hình cùng một thiết bị không biết gì về nhau — nên chọn một, đừng " +
+      "cả hai.",
+    // Created
+    "created.already": "Đã có trong Home Assistant",
+    "created.added": "Đã thêm vào Home Assistant",
+    "created.existingText":
+      "<code>{label}</code> đang dùng mã thiết bị {code}. Nó đã được nạp lại, " +
+      "nên đang chạy trên file bạn vừa lưu.",
+    "created.newText": "Đã tạo <code>{label}</code>. Không cần restart gì.",
+    "button.show": "Xem nó",
+    "link.manage": "Quản lý thiết bị HubIR",
+    "created.renameNote":
+      "Đổi tên, gán vào khu vực, hay trỏ nó sang một remote khác ở Cài đặt " +
+      "&rarr; Thiết bị &amp; dịch vụ &rarr; HubIR.",
+    // The remote picker
+    "remote.notBroadlink": " — không phải remote Broadlink",
+    // Messages
+    "err.enterDeviceCode": "Nhập mã thiết bị trước đã.",
+    "err.nothingToTest": "Chưa ghi được mã nào để thử.",
+    "err.giveName": "Đặt tên cho nó trước đã.",
+    "err.clipboard": "Clipboard bị từ chối. Hãy chọn đoạn text dưới đây và copy.",
+    "err.generic": "Có gì đó không ổn.",
+    "err.alreadyExists":
+      "{message}. Hãy tích “Ghi đè file đang có”, hoặc chọn một mã thiết bị " +
+      "khác ở phần cài đặt.",
+    "ok.loadedTemplate":
+      "Đã nạp mã thiết bị {code}: {kept} mã đã được ghi sẵn. Lưu lại sẽ ghi " +
+      "vào {target}, không chạm tới file gốc.",
+    "ok.sentCode": "Đã gửi mã của {label}.",
+    "err.typeSomething": "Nhập gì đó trước đã.",
+    "err.noSlash":
+      "Tên không được chứa dấu gạch chéo — nó sẽ cắt key của mã làm hai.",
+    "err.oneAtATime": "Thêm từng cái một; không cần dấu phẩy nữa.",
+    "err.tooLong": "Giữ dưới {max} ký tự.",
+    "err.numbersOnly": "Chỉ số — 2700, không phải “ấm”.",
+    "err.positive": "Phải là một số dương.",
+    "err.duplicate": "“{value}” đã có trong danh sách.",
+    "err.duplicateNumber": "{value} đã có trong danh sách.",
+    "unit.bytes": "byte",
+    // Platform names
+    "platform.climate": "Máy điều hoà",
+    "platform.fan": "Quạt",
+    "platform.light": "Đèn",
+    "platform.media_player": "TV / đầu phát",
+    "platform.switch": "Công tắc hoặc ổ cắm",
+    // The capture labels and groups the server builds. Token by token: what is
+    // not in here is a device-file key and stays as it is.
+    "plan.Power": "Nguồn",
+    "plan.Extras": "Thêm",
+    "plan.Brightness": "Độ sáng",
+    "plan.Colour": "Màu",
+    "plan.Presets": "Nút một chạm",
+    "plan.Extra buttons": "Các nút khác",
+    "plan.Sources": "Nguồn vào",
+    "plan.Volume": "Âm lượng",
+    "plan.Channels": "Kênh",
+    "plan.On": "Bật",
+    "plan.Off": "Tắt",
+    "plan.Oscillate": "Quay",
+    "plan.Brighter": "Sáng hơn",
+    "plan.Dimmer": "Tối hơn",
+    "plan.Colder": "Lạnh hơn",
+    "plan.Warmer": "Ấm hơn",
+    "plan.Night light": "Đèn ngủ",
+    "plan.Volume up": "Tăng âm lượng",
+    "plan.Volume down": "Giảm âm lượng",
+    "plan.Mute": "Tắt tiếng",
+    "plan.Previous channel": "Kênh trước",
+    "plan.Next channel": "Kênh sau",
+    "plan.Toggle (a remote with one power button)":
+      "Chuyển trạng thái (remote chỉ có một nút nguồn)",
+    "plan.Extra": "Nút khác",
+    "plan.Source": "Nguồn vào",
+    "plan.Preset": "Một chạm",
+    "plan.any fan": "mọi tốc độ quạt",
+    "plan.presetHint": "{head} — đặt remote về {state} trước",
+  },
+};
+
+/**
+ * Return `key` in `lang`, or `fallback` when there is no translation for it.
+ *
+ * The fallback is the English text at the call site, so an untranslated string
+ * degrades to English and never to a key.
+ */
+function tr(lang, key, fallback) {
+  const table = STRINGS[lang];
+  const found = table && table[key];
+  return found === undefined ? fallback : found;
+}
+
+/** Fill {name} placeholders. Values are substituted verbatim, so escape first. */
+function fill(template, values = {}) {
+  return String(template).replace(/\{(\w+)\}/g, (whole, name) =>
+    name in values ? String(values[name]) : whole
+  );
+}
+
+/**
+ * Translate a capture label or group the server built.
+ *
+ * The wire value stays English — it is protocol, and the panel compares against
+ * it — so this only touches what is rendered. Labels are built by joining parts
+ * with " · ", and the parts that are not fixed English words are mode names,
+ * fan speeds and source names: keys in the device file. Translating token by
+ * token leaves those alone, which is the point.
+ */
+function planText(lang, text) {
+  const value = String(text ?? "");
+  if (!STRINGS[lang]) return value;
+
+  const tokens = (part) =>
+    part
+      .split(" · ")
+      .map((token) => tr(lang, `plan.${token}`, token))
+      .join(" · ");
+
+  // A preset label carries a sentence, which has to come apart before the
+  // " · " split reaches the state it names.
+  const preset = value.match(/^(.*) — set the remote to (.*) first$/);
+  if (preset) {
+    return fill(tr(lang, "plan.presetHint", "{head} — set the remote to {state} first"), {
+      head: tokens(preset[1]),
+      state: tokens(preset[2]),
+    });
+  }
+  return tokens(value);
+}
+
 const MAX_NAME_LENGTH = 64;
 
 /**
@@ -367,6 +695,44 @@ class BroadlinkIrPanel extends HTMLElement {
     return this._hass.connection.sendMessagePromise(message);
   }
 
+  // -- language ------------------------------------------------------------
+
+  /**
+   * The language to render in, as a bare code.
+   *
+   * Home Assistant hands the panel the user's own language, not the server's,
+   * so two people looking at the same instance each get their own. Regional
+   * variants collapse to the base language: there is one Vietnamese here, and
+   * `pt-BR` should find a `pt` table rather than nothing.
+   */
+  _lang() {
+    const hass = this._hass;
+    const raw =
+      (hass && (hass.language || (hass.locale && hass.locale.language))) || "";
+    return String(raw).toLowerCase().split("-")[0];
+  }
+
+  /** Look up one string, falling back to the English text passed in. */
+  _t(key, fallback, values) {
+    const text = tr(this._lang(), key, fallback);
+    return values ? fill(text, values) : text;
+  }
+
+  /** Translate a capture label or group name the server built. */
+  _plan(text) {
+    return planText(this._lang(), text);
+  }
+
+  /** The name of a device type, as the user's language calls it. */
+  _platformLabel(platform) {
+    return this._t(`platform.${platform}`, PLATFORM_LABELS[platform]);
+  }
+
+  /** Turn a failed websocket call into a sentence. */
+  _describe(err) {
+    return describe(err, this._lang());
+  }
+
   async _load() {
     try {
       const info = await this._call({ type: "hub_ir/info" });
@@ -376,7 +742,7 @@ class BroadlinkIrPanel extends HTMLElement {
       this._state.remote = (learnable[0] || info.remotes[0] || {}).entity_id || "";
       this._state.deviceCode = info.next_code[this._state.platform];
     } catch (err) {
-      this._state.status = { kind: "error", text: describe(err) };
+      this._state.status = { kind: "error", text: this._describe(err) };
     }
     await this._refreshCustomCodes();
     this._render();
@@ -433,7 +799,7 @@ class BroadlinkIrPanel extends HTMLElement {
       this._advanceToFirstGap();
       this._set({ step: "capture", status: null });
     } catch (err) {
-      this._set({ status: { kind: "error", text: describe(err) } });
+      this._set({ status: { kind: "error", text: this._describe(err) } });
     }
   }
 
@@ -447,7 +813,12 @@ class BroadlinkIrPanel extends HTMLElement {
   async _loadTemplate() {
     const code = Number(this._state.templateCode);
     if (!code) {
-      this._set({ status: { kind: "error", text: "Enter a device code first." } });
+      this._set({
+        status: {
+          kind: "error",
+          text: this._t("err.enterDeviceCode", "Enter a device code first."),
+        },
+      });
       return;
     }
 
@@ -471,13 +842,16 @@ class BroadlinkIrPanel extends HTMLElement {
         index: 0,
         status: {
           kind: "ok",
-          text:
-            `Loaded device code ${code}: ${kept} code(s) already recorded. ` +
-            `Saving will write to ${this._state.deviceCode}, leaving the original alone.`,
+          text: this._t(
+            "ok.loadedTemplate",
+            "Loaded device code {code}: {kept} code(s) already recorded. " +
+              "Saving will write to {target}, leaving the original alone.",
+            { code, kept, target: this._state.deviceCode }
+          ),
         },
       });
     } catch (err) {
-      this._set({ status: { kind: "error", text: describe(err) } });
+      this._set({ status: { kind: "error", text: this._describe(err) } });
     }
   }
 
@@ -532,7 +906,7 @@ class BroadlinkIrPanel extends HTMLElement {
         delete this._state.skipped[target.key];
         this._advance();
       } catch (err) {
-        this._set({ running: false, status: { kind: "error", text: describe(err) } });
+        this._set({ running: false, status: { kind: "error", text: this._describe(err) } });
         return;
       }
 
@@ -578,7 +952,12 @@ class BroadlinkIrPanel extends HTMLElement {
     const cell = this._testableCell();
     const code = cell && this._state.codes[cell.key];
     if (!code) {
-      this._set({ status: { kind: "error", text: "Nothing captured to test yet." } });
+      this._set({
+        status: {
+          kind: "error",
+          text: this._t("err.nothingToTest", "Nothing captured to test yet."),
+        },
+      });
       return;
     }
     try {
@@ -588,10 +967,15 @@ class BroadlinkIrPanel extends HTMLElement {
         code,
       });
       this._set({
-        status: { kind: "ok", text: `Sent the code for ${cell.label}.` },
+        status: {
+          kind: "ok",
+          text: this._t("ok.sentCode", "Sent the code for {label}.", {
+            label: this._plan(cell.label),
+          }),
+        },
       });
     } catch (err) {
-      this._set({ status: { kind: "error", text: describe(err) } });
+      this._set({ status: { kind: "error", text: this._describe(err) } });
     }
   }
 
@@ -624,7 +1008,11 @@ class BroadlinkIrPanel extends HTMLElement {
         showRaw: false,
         copied: false,
         status: null,
-        entityName: defaultName(this._state.spec, this._state.platform),
+        entityName: defaultName(
+          this._state.spec,
+          this._state.platform,
+          this._lang()
+        ),
         creating: false,
         // Clearing this matters: saving a second file after a create would
         // otherwise show the first entity's success over the new file.
@@ -633,9 +1021,13 @@ class BroadlinkIrPanel extends HTMLElement {
     } catch (err) {
       const text =
         err && err.code === "already_exists"
-          ? `${describe(err)}. Tick “Replace the existing file”, or pick another ` +
-            `device code on the settings step.`
-          : describe(err);
+          ? this._t(
+              "err.alreadyExists",
+              "{message}. Tick “Replace the existing file”, or pick another " +
+                "device code on the settings step.",
+              { message: this._describe(err) }
+            )
+          : this._describe(err);
       this._set({ status: { kind: "error", text } });
     }
   }
@@ -648,11 +1040,17 @@ class BroadlinkIrPanel extends HTMLElement {
   /** Warn, and offer permission, when the chosen code is already taken. */
   _overwriteWarning() {
     if (!this._wouldOverwrite()) return "";
-    return `<div class="status error">Device code ${esc(
-      this._state.deviceCode
-    )} already exists. Saving replaces it.</div>
+    return `<div class="status error">${this._t(
+      "overwrite.exists",
+      "Device code {code} already exists. Saving replaces it.",
+      { code: esc(this._state.deviceCode) }
+    )}</div>
       <div class="row" style="margin-top:.5rem">
-        ${chip("overwrite", "Replace the existing file", this._state.overwrite)}
+        ${chip(
+          "overwrite",
+          this._t("chip.replaceExisting", "Replace the existing file"),
+          this._state.overwrite
+        )}
       </div>`;
   }
 
@@ -671,7 +1069,9 @@ class BroadlinkIrPanel extends HTMLElement {
     const s = this._state;
     const name = String(s.entityName || "").trim();
     if (!name) {
-      this._set({ status: { kind: "error", text: "Give it a name first." } });
+      this._set({
+        status: { kind: "error", text: this._t("err.giveName", "Give it a name first.") },
+      });
       return;
     }
 
@@ -686,7 +1086,7 @@ class BroadlinkIrPanel extends HTMLElement {
       });
       this._set({ creating: false, created, status: null });
     } catch (err) {
-      this._set({ creating: false, status: { kind: "error", text: describe(err) } });
+      this._set({ creating: false, status: { kind: "error", text: this._describe(err) } });
     }
   }
 
@@ -727,71 +1127,99 @@ class BroadlinkIrPanel extends HTMLElement {
 
     return `
       <div class="card">
-        <h2>${this._step("What are you teaching?")}</h2>
+        <h2>${this._step(this._t("step.teaching", "What are you teaching?"))}</h2>
         <div class="grid">
           <div>
-            <label for="platform">Device type</label>
+            <label for="platform">${this._t("label.deviceType", "Device type")}</label>
             <select id="platform">
-              ${Object.entries(PLATFORM_LABELS)
+              ${Object.keys(PLATFORM_LABELS)
                 .map(
-                  ([value, label]) =>
+                  (value) =>
                     `<option value="${value}"${
                       value === s.platform ? " selected" : ""
-                    }>${esc(label)}</option>`
+                    }>${esc(this._platformLabel(value))}</option>`
                 )
                 .join("")}
             </select>
           </div>
           <div>
-            <label for="remote">Broadlink remote</label>
+            <label for="remote">${this._t("label.remote", "Broadlink remote")}</label>
             ${this._remoteSelect()}
           </div>
           <div>
-            <label for="device_code">New device code</label>
+            <label for="device_code">${this._t(
+              "label.newDeviceCode",
+              "New device code"
+            )}</label>
             <input id="device_code" type="number" value="${s.deviceCode ?? ""}" />
           </div>
         </div>
         ${
           learnable.length
             ? ""
-            : `<div class="status error">No Broadlink remote found. Set up the
-               Broadlink integration first — only its remotes can learn codes.</div>`
+            : `<div class="status error">${this._t(
+                "error.noRemote",
+                "No Broadlink remote found. Set up the Broadlink integration " +
+                  "first — only its remotes can learn codes."
+              )}</div>`
         }
         ${this._overwriteWarning()}
       </div>
 
       <div class="card">
-        <h2>${this._step("Identify it")}</h2>
+        <h2>${this._step(this._t("step.identify", "Identify it"))}</h2>
         <div class="grid">
           <div>
-            <label for="manufacturer">Manufacturer</label>
+            <label for="manufacturer">${this._t(
+              "label.manufacturer",
+              "Manufacturer"
+            )}</label>
             <input id="manufacturer" value="${esc(s.spec.manufacturer)}" placeholder="Daikin" />
           </div>
           <div>${this._listEditor("models")}</div>
         </div>
 
         <p class="muted" style="margin-top:1rem">
-          Starting from a device file that is nearly right is much less work than
-          starting from nothing. Any existing code can be loaded — the settings and
-          every code it already holds come with it, and only the gaps are left to
-          capture. Saving always writes to your own code, so the original is untouched.
+          ${this._t(
+            "template.intro",
+            "Starting from a device file that is nearly right is much less work " +
+              "than starting from nothing. Any existing code can be loaded — the " +
+              "settings and every code it already holds come with it, and only " +
+              "the gaps are left to capture. Saving always writes to your own " +
+              "code, so the original is untouched."
+          )}
         </p>
         <div class="row">
-          <input id="template_code" type="number" placeholder="e.g. 1000"
+          <input id="template_code" type="number"
+                 placeholder="${esc(this._t("placeholder.templateCode", "e.g. 1000"))}"
                  value="${esc(s.templateCode)}" style="max-width:10rem" />
-          <button id="load_template">Load that device file</button>
+          <button id="load_template">${this._t(
+            "button.loadTemplate",
+            "Load that device file"
+          )}</button>
         </div>
         ${
           s.customCodes.length
             ? `<div class="row" style="margin-top:.5rem">
-                 <span class="muted">Your recordings:</span>
+                 <span class="muted">${this._t(
+                   "label.yourRecordings",
+                   "Your recordings:"
+                 )}</span>
                  ${s.customCodes
                    .map(
                      (code) =>
                        `<span class="chip" data-reopen="${code}" role="button">${code}</span>
                         <button type="button" class="icon" data-download="${code}"
-                          title="Download ${code}.json — keep a copy before you reinstall"
-                          aria-label="Download ${code}.json">&#11015;</button>`
+                          title="${esc(
+                            this._t(
+                              "title.download",
+                              "Download {code}.json — keep a copy before you reinstall",
+                              { code }
+                            )
+                          )}"
+                          aria-label="${esc(
+                            this._t("aria.download", "Download {code}.json", { code })
+                          )}">&#11015;</button>`
                    )
                    .join("")}
                </div>`
@@ -805,7 +1233,7 @@ class BroadlinkIrPanel extends HTMLElement {
 
       <div class="row">
         <button class="primary" id="plan" ${learnable.length ? "" : "disabled"}>
-          Build the list of codes
+          ${this._t("button.buildList", "Build the list of codes")}
         </button>
       </div>
       ${this._statusView()}
@@ -842,10 +1270,13 @@ class BroadlinkIrPanel extends HTMLElement {
 
     if (!modes.length || !fanModes.length) {
       return `<div class="card">
-        <h2>${this._step("One-touch buttons")}</h2>
+        <h2>${this._step(this._t("step.oneTouch", "One-touch buttons"))}</h2>
         <div class="status error">
-          Choose at least one operation mode and one fan speed first — a
-          one-touch button has to be recorded from a state you can name.
+          ${this._t(
+            "preset.needModes",
+            "Choose at least one operation mode and one fan speed first — a " +
+              "one-touch button has to be recorded from a state you can name."
+          )}
         </div>
       </div>`;
     }
@@ -857,31 +1288,46 @@ class BroadlinkIrPanel extends HTMLElement {
       }>${esc(value)}</option>`;
 
     return `<div class="card">
-      <h2>${this._step("One-touch buttons (Turbo, Eco, Sleep)")}</h2>
+      <h2>${this._step(
+        this._t("step.oneTouchLong", "One-touch buttons (Turbo, Eco, Sleep)")
+      )}</h2>
       <p class="muted">
-        On most air conditioners these do <strong>not</strong> send a small
-        &ldquo;turbo on&rdquo; packet. They send the unit&rsquo;s whole state
-        &mdash; mode, fan speed and temperature &mdash; with one extra bit
-        flipped. So the code you record here will always put the unit back into
-        whichever state the remote was showing when you pressed it. Pick that
-        state once, below; the panel puts it on every capture screen and writes
-        it into the device file, so nobody has to guess later.
+        ${this._t(
+          "preset.explain",
+          "On most air conditioners these do <strong>not</strong> send a small " +
+            "&ldquo;turbo on&rdquo; packet. They send the unit&rsquo;s whole " +
+            "state &mdash; mode, fan speed and temperature &mdash; with one " +
+            "extra bit flipped. So the code you record here will always put the " +
+            "unit back into whichever state the remote was showing when you " +
+            "pressed it. Pick that state once, below; the panel puts it on every " +
+            "capture screen and writes it into the device file, so nobody has to " +
+            "guess later."
+        )}
       </p>
       <div class="grid" style="margin-top:.75rem">
         <div>
-          <label for="presetBaseMode">Record them from this mode</label>
+          <label for="presetBaseMode">${this._t(
+            "label.presetMode",
+            "Record them from this mode"
+          )}</label>
           <select id="presetBaseMode">
             ${modes.map((mode) => option(mode, baseline.operationMode)).join("")}
           </select>
         </div>
         <div>
-          <label for="presetBaseFanMode">…this fan speed</label>
+          <label for="presetBaseFanMode">${this._t(
+            "label.presetFan",
+            "…this fan speed"
+          )}</label>
           <select id="presetBaseFanMode">
             ${fanModes.map((fan) => option(fan, baseline.fanMode)).join("")}
           </select>
         </div>
         <div>
-          <label for="presetBaseTemperature">…and this temperature</label>
+          <label for="presetBaseTemperature">${this._t(
+            "label.presetTemp",
+            "…and this temperature"
+          )}</label>
           <input id="presetBaseTemperature" type="number" step="${s.spec.precision}"
             min="${s.spec.minTemperature}" max="${s.spec.maxTemperature}"
             value="${baseline.temperature}" />
@@ -937,13 +1383,16 @@ class BroadlinkIrPanel extends HTMLElement {
   _extrasCard() {
     const s = this._state;
     return `<div class="card">
-      <h2>${this._step("Any other buttons")}</h2>
+      <h2>${this._step(this._t("step.otherButtons", "Any other buttons"))}</h2>
       <p class="muted">
-        Anything else on the remote &mdash; a menu key, the arrows, the digits, an
-        LED toggle, a favourite input. These are not wired to the entity&rsquo;s
-        normal controls; they are reachable by name from the
-        <code>hub_ir.send_command</code> service and from scripts. Short
-        lower-case names travel best.
+        ${this._t(
+          "extras.explain",
+          "Anything else on the remote &mdash; a menu key, the arrows, the " +
+            "digits, an LED toggle, a favourite input. These are not wired to " +
+            "the entity&rsquo;s normal controls; they are reachable by name from " +
+            "the <code>hub_ir.send_command</code> service and from scripts. " +
+            "Short lower-case names travel best."
+        )}
       </p>
       <div style="margin-top:.75rem">
         ${this._listEditor("extraCommands", {
@@ -953,9 +1402,20 @@ class BroadlinkIrPanel extends HTMLElement {
     </div>`;
   }
 
-  /** Return the description of a list field, with any per-call overrides. */
+  /**
+   * Return the description of a list field, with any per-call overrides.
+   *
+   * The label, the singular noun and the note are prose, so they come from the
+   * translation table when there is one; LIST_FIELDS holds the English and
+   * everything else — the order flag, the presets, the fill — which is not
+   * language at all.
+   */
   _listConfig(field, options = {}) {
-    return { presets: [], ...LIST_FIELDS[field], ...options };
+    const config = { presets: [], ...LIST_FIELDS[field], ...options };
+    config.label = this._t(`list.${field}.label`, config.label);
+    config.one = this._t(`list.${field}.one`, config.one);
+    if (config.note) config.note = this._t(`list.${field}.note`, config.note);
+    return config;
   }
 
   /**
@@ -981,26 +1441,32 @@ class BroadlinkIrPanel extends HTMLElement {
               <span class="item-name">${name}</span>
               <span class="item-tools">
                 <button type="button" class="icon" data-list="${field}" data-act="up"
-                  data-index="${index}" aria-label="Move ${name} up"
+                  data-index="${index}"
+                  aria-label="${this._t("aria.moveUp", "Move {name} up", { name })}"
                   ${index === 0 ? "disabled" : ""}>&#8593;</button>
                 <button type="button" class="icon" data-list="${field}" data-act="down"
-                  data-index="${index}" aria-label="Move ${name} down"
+                  data-index="${index}"
+                  aria-label="${this._t("aria.moveDown", "Move {name} down", { name })}"
                   ${index === list.length - 1 ? "disabled" : ""}>&#8595;</button>
                 <button type="button" class="icon danger" data-list="${field}"
                   data-act="remove" data-index="${index}"
-                  aria-label="Remove ${name}">&#10005;</button>
+                  aria-label="${this._t("aria.remove", "Remove {name}", {
+                    name,
+                  })}">&#10005;</button>
               </span>
             </div></li>`;
           })
           .join("")}</ol>`
-      : `<p class="muted empty">Nothing yet.</p>`;
+      : `<p class="muted empty">${this._t("list.empty", "Nothing yet.")}</p>`;
 
     // Only offered while the list is empty, and only when there is a
     // conventional answer: one click instead of inventing four names.
-    const fill =
+    const fillChip =
       !list.length && config.fill
         ? `<span class="chip" role="button" data-list="${field}" data-act="fill"
-             >Use ${config.fill.join(" · ")}</span>`
+             >${this._t("list.use", "Use {items}", {
+               items: config.fill.join(" · "),
+             })}</span>`
         : "";
 
     // A suggestion already in the list is not rendered at all. Hiding beats
@@ -1016,18 +1482,32 @@ class BroadlinkIrPanel extends HTMLElement {
 
     return `<div class="list">
       <label for="${addId}">${esc(config.label)}${
-        config.ordered ? ` <span class="muted">— order matters</span>` : ""
+        config.ordered
+          ? ` <span class="muted">${this._t(
+              "list.orderMatters",
+              "— order matters"
+            )}</span>`
+          : ""
       }</label>
       ${config.note ? `<p class="muted" style="margin:.1rem 0 .3rem">${esc(config.note)}</p>` : ""}
       ${items}
       <div class="row addrow">
         <input id="${addId}" type="text" autocomplete="off"
           ${config.numeric ? 'inputmode="numeric"' : ""}
-          placeholder="add a ${esc(config.one)}"
+          placeholder="${esc(
+            this._t("list.placeholder", "add a {one}", { one: config.one })
+          )}"
           value="${esc(this._state.draft[field] || "")}" />
-        <button type="button" data-list="${field}" data-act="add">Add</button>
+        <button type="button" data-list="${field}" data-act="add">${this._t(
+          "list.add",
+          "Add"
+        )}</button>
       </div>
-      ${fill || suggestions ? `<div class="chips presets">${fill}${suggestions}</div>` : ""}
+      ${
+        fillChip || suggestions
+          ? `<div class="chips presets">${fillChip}${suggestions}</div>`
+          : ""
+      }
       ${error ? `<div class="status error listerr">${esc(error)}</div>` : ""}
     </div>`;
   }
@@ -1051,7 +1531,7 @@ class BroadlinkIrPanel extends HTMLElement {
       list.push(...config.fill);
     } else if (act === "add" || act === "preset") {
       const raw = act === "preset" ? data.value : this._state.draft[field];
-      const outcome = listValue(raw, config, list);
+      const outcome = listValue(raw, config, list, this._lang());
       if (outcome.error) {
         this._state.listError[field] = outcome.error;
         this._state.focus = `list_add_${field}`;
@@ -1073,46 +1553,67 @@ class BroadlinkIrPanel extends HTMLElement {
     const s = this._state;
     if (s.platform === "climate") return this._climateSpecView();
 
+    const heading = this._t("step.capabilities", "What can it do?");
+
     if (s.platform === "fan") {
       return `<div class="card">
-        <h2>${this._step("What can it do?")}</h2>
+        <h2>${this._step(heading)}</h2>
         ${this._listEditor("speed")}
         <div class="row" style="margin-top:.75rem">
-          ${chip("hasDirection", "Reversible", s.spec.hasDirection)}
-          ${chip("hasOscillate", "Oscillates", s.spec.hasOscillate)}
+          ${chip(
+            "hasDirection",
+            this._t("chip.reversible", "Reversible"),
+            s.spec.hasDirection
+          )}
+          ${chip(
+            "hasOscillate",
+            this._t("chip.oscillates", "Oscillates"),
+            s.spec.hasOscillate
+          )}
         </div>
       </div>`;
     }
 
     if (s.platform === "light") {
       return `<div class="card">
-        <h2>${this._step("What can it do?")}</h2>
+        <h2>${this._step(heading)}</h2>
         <div class="grid wide">
           <div>${this._listEditor("brightness")}</div>
           <div>${this._listEditor("colorTemperature")}</div>
         </div>
         <div class="row" style="margin-top:.75rem">
-          ${chip("hasNight", "Has a night light", s.spec.hasNight)}
+          ${chip(
+            "hasNight",
+            this._t("chip.nightLight", "Has a night light"),
+            s.spec.hasNight
+          )}
         </div>
       </div>`;
     }
 
     if (s.platform === "switch") {
       return `<div class="card">
-        <h2>${this._step("What can it do?")}</h2>
+        <h2>${this._step(heading)}</h2>
         <p class="muted">
-          Most remotes have separate on and off keys. Some — projectors
-          especially — have a single power key whose code just alternates; tick
-          this and the panel records that one instead.
+          ${this._t(
+            "switch.toggleNote",
+            "Most remotes have separate on and off keys. Some — projectors " +
+              "especially — have a single power key whose code just alternates; " +
+              "tick this and the panel records that one instead."
+          )}
         </p>
         <div class="row">
-          ${chip("hasToggle", "One power button that toggles", s.spec.hasToggle)}
+          ${chip(
+            "hasToggle",
+            this._t("chip.toggleOnePower", "One power button that toggles"),
+            s.spec.hasToggle
+          )}
         </div>
       </div>`;
     }
 
     return `<div class="card">
-      <h2>${this._step("What can it do?")}</h2>
+      <h2>${this._step(heading)}</h2>
       <div class="chips">
         ${["on", "off", "volumeUp", "volumeDown", "mute", "previousChannel", "nextChannel"]
           .map((name) =>
@@ -1129,15 +1630,17 @@ class BroadlinkIrPanel extends HTMLElement {
     const modes = spec.operationModes;
 
     return `<div class="card">
-      <h2>${this._step("Temperatures and modes")}</h2>
+      <h2>${this._step(
+        this._t("step.temperaturesModes", "Temperatures and modes")
+      )}</h2>
       <div class="grid">
-        <div><label for="minTemperature">Minimum</label>
+        <div><label for="minTemperature">${this._t("label.min", "Minimum")}</label>
           <input id="minTemperature" type="number" step="any" value="${spec.minTemperature}" /></div>
-        <div><label for="maxTemperature">Maximum</label>
+        <div><label for="maxTemperature">${this._t("label.max", "Maximum")}</label>
           <input id="maxTemperature" type="number" step="any" value="${spec.maxTemperature}" /></div>
-        <div><label for="precision">Step</label>
+        <div><label for="precision">${this._t("label.step", "Step")}</label>
           <input id="precision" type="number" step="any" value="${spec.precision}" /></div>
-        <div><label for="temperatureUnit">Unit</label>
+        <div><label for="temperatureUnit">${this._t("label.unit", "Unit")}</label>
           <select id="temperatureUnit">
             <option value="C"${spec.temperatureUnit === "C" ? " selected" : ""}>Celsius</option>
             <option value="F"${spec.temperatureUnit === "F" ? " selected" : ""}>Fahrenheit</option>
@@ -1145,7 +1648,7 @@ class BroadlinkIrPanel extends HTMLElement {
       </div>
 
       <div style="margin-top:1rem">
-        <label>Operation modes</label>
+        <label>${this._t("label.operationModes", "Operation modes")}</label>
         <div class="chips">
           ${CLIMATE_MODES.map((mode) =>
             chip(`mode:${mode}`, mode, modes.includes(mode))
@@ -1159,27 +1662,45 @@ class BroadlinkIrPanel extends HTMLElement {
       </div>
 
       <div class="row" style="margin-top:.75rem">
-        ${chip("hasOnCommand", "Separate power-on code", spec.hasOnCommand)}
+        ${chip(
+          "hasOnCommand",
+          this._t("chip.separateOn", "Separate power-on code"),
+          spec.hasOnCommand
+        )}
       </div>
 
-      <h2 style="margin-top:1.5rem">Which modes ignore what?</h2>
+      <h2 style="margin-top:1.5rem">${this._t(
+        "heading.whichModesIgnore",
+        "Which modes ignore what?"
+      )}</h2>
       <p class="muted">
-        Most units ignore the temperature in <em>dry</em> and <em>fan only</em>, and some
-        ignore the fan speed too. Saying so here is the difference between
-        pressing the remote a hundred times and a couple of hundred — the same
-        code is written everywhere it applies.
+        ${this._t(
+          "climate.modeOptionsNote",
+          "Most units ignore the temperature in <em>dry</em> and <em>fan only" +
+            "</em>, and some ignore the fan speed too. Saying so here is the " +
+            "difference between pressing the remote a hundred times and a couple " +
+            "of hundred — the same code is written everywhere it applies."
+        )}
       </p>
       <table>
-        <tr><th>Mode</th><th>Responds to fan speed</th><th>Responds to temperature</th></tr>
+        <tr><th>${this._t("table.mode", "Mode")}</th><th>${this._t(
+          "table.respondsFan",
+          "Responds to fan speed"
+        )}</th><th>${this._t(
+          "table.respondsTemp",
+          "Responds to temperature"
+        )}</th></tr>
         ${modes
           .map((mode) => {
             const options = spec.modeOptions[mode] || {};
             const fan = options.usesFan !== false;
             const temp = options.usesTemperature !== false;
+            const yes = this._t("word.yes", "yes");
+            const no = this._t("word.no", "no");
             return `<tr>
               <td>${esc(mode)}</td>
-              <td>${chip(`usesFan:${mode}`, fan ? "yes" : "no", fan)}</td>
-              <td>${chip(`usesTemperature:${mode}`, temp ? "yes" : "no", temp)}</td>
+              <td>${chip(`usesFan:${mode}`, fan ? yes : no, fan)}</td>
+              <td>${chip(`usesTemperature:${mode}`, temp ? yes : no, temp)}</td>
             </tr>`;
           })
           .join("")}
@@ -1197,20 +1718,40 @@ class BroadlinkIrPanel extends HTMLElement {
 
     return `
       <div class="card">
-        <h2>Point the original remote at the Broadlink</h2>
+        <h2>${this._t(
+          "capture.heading",
+          "Point the original remote at the Broadlink"
+        )}</h2>
         ${
           current
-            ? `<p class="muted">Set the remote to this, then press send:</p>
-               <div class="target">${esc(current.label)}</div>
-               <p class="muted">${done + skipped} of ${total} · ${esc(current.group)}</p>`
-            : `<div class="target">All ${total} codes accounted for</div>`
+            ? `<p class="muted">${this._t(
+                "capture.setRemote",
+                "Set the remote to this, then press send:"
+              )}</p>
+               <div class="target">${esc(this._plan(current.label))}</div>
+               <p class="muted">${this._t(
+                 "capture.progress",
+                 "{done} of {total} · {group}",
+                 {
+                   done: done + skipped,
+                   total,
+                   group: esc(this._plan(current.group)),
+                 }
+               )}</p>`
+            : `<div class="target">${this._t(
+                "capture.allDone",
+                "All {total} codes accounted for",
+                { total }
+              )}</div>`
         }
         ${
           current && current.group === "Presets"
-            ? `<div class="status ok">This one carries the unit's whole state, so
-                 set the remote back to <strong>${esc(
-                   this._presetBaseLabel()
-                 )}</strong> before you press it.</div>`
+            ? `<div class="status ok">${this._t(
+                "capture.presetNote",
+                "This one carries the unit's whole state, so set the remote back " +
+                  "to <strong>{state}</strong> before you press it.",
+                { state: esc(this._presetBaseLabel()) }
+              )}</div>`
             : ""
         }
         <div class="bar"><div style="width:${percent}%"></div></div>
@@ -1221,40 +1762,65 @@ class BroadlinkIrPanel extends HTMLElement {
                 `<div class="cell ${this._cellState(cell)}${
                   i === s.index ? " current" : ""
                 }" data-index="${i}" role="button" tabindex="0"
-                  title="${esc(cell.label)} — click to go back to it"></div>`
+                  title="${this._t(
+                    "cell.title",
+                    "{label} — click to go back to it",
+                    { label: esc(this._plan(cell.label)) }
+                  )}"></div>`
             )
             .join("")}
         </div>
-        <p class="muted">Click a square to return to that code and capture it again.</p>
+        <p class="muted">${this._t(
+          "capture.clickSquare",
+          "Click a square to return to that code and capture it again."
+        )}</p>
 
         <div class="row" style="margin-top:1rem">
           <button class="primary" id="run" ${
             s.running || !current ? "disabled" : ""
-          }>Start capturing</button>
-          <button id="one" ${s.running || !current ? "disabled" : ""}>Just this one</button>
-          <button id="stop" ${s.running ? "" : "disabled"}>Stop</button>
-          <button id="skip" ${s.running || !current ? "disabled" : ""}>Skip</button>
-          <button id="test" ${s.running ? "disabled" : ""}>Test last code</button>
+          }>${this._t("button.start", "Start capturing")}</button>
+          <button id="one" ${s.running || !current ? "disabled" : ""}>${this._t(
+            "button.justOne",
+            "Just this one"
+          )}</button>
+          <button id="stop" ${s.running ? "" : "disabled"}>${this._t(
+            "button.stop",
+            "Stop"
+          )}</button>
+          <button id="skip" ${s.running || !current ? "disabled" : ""}>${this._t(
+            "button.skip",
+            "Skip"
+          )}</button>
+          <button id="test" ${s.running ? "disabled" : ""}>${this._t(
+            "button.testLast",
+            "Test last code"
+          )}</button>
         </div>
         <div class="row" style="margin-top:.6rem">
-          ${chip("toggle", "Two-packet button", s.toggle)}
+          ${chip("toggle", this._t("chip.twoPacket", "Two-packet button"), s.toggle)}
         </div>
         ${
           s.toggle
             ? `<p class="muted" style="margin-top:.4rem">
-                 Some remotes alternate between two packets for the same button —
-                 a Samsung power key is the usual one. The panel asks the
-                 Broadlink for both and stores them as a pair; the integration
-                 sends them in turn. Leave this off unless a captured code only
-                 works every other press.
+                 ${this._t(
+                   "capture.toggleNote",
+                   "Some remotes alternate between two packets for the same " +
+                     "button — a Samsung power key is the usual one. The panel " +
+                     "asks the Broadlink for both and stores them as a pair; the " +
+                     "integration sends them in turn. Leave this off unless a " +
+                     "captured code only works every other press."
+                 )}
                </p>`
             : ""
         }
         ${
           s.running
             ? `<p class="muted" style="margin-top:.75rem">
-                 Listening… each code times out after 30 seconds. Keep pressing;
-                 the panel moves on by itself.
+                 ${this._t(
+                   "capture.listening",
+                   "Listening… each code times out after 30 seconds. Keep " +
+                     "pressing; the panel moves on by itself."
+                 )}
                </p>`
             : ""
         }
@@ -1263,17 +1829,26 @@ class BroadlinkIrPanel extends HTMLElement {
 
       ${this._overwriteWarning()}
       <div class="row">
-        <button id="back">Back to the settings</button>
+        <button id="back">${this._t(
+          "button.backToSettings",
+          "Back to the settings"
+        )}</button>
         <button class="primary" id="save" ${
           done && !(this._wouldOverwrite() && !s.overwrite) ? "" : "disabled"
         }>
-          Save as device code ${s.deviceCode}
+          ${this._t("button.saveAs", "Save as device code {code}", {
+            code: s.deviceCode,
+          })}
         </button>
       </div>
       ${
         skipped
-          ? `<p class="muted">${skipped} skipped; those stay empty and the
-             integration refuses to send them.</p>`
+          ? `<p class="muted">${this._t(
+              "capture.skippedNote",
+              "{count} skipped; those stay empty and the integration refuses to " +
+                "send them.",
+              { count: skipped }
+            )}</p>`
           : ""
       }
     `;
@@ -1283,20 +1858,28 @@ class BroadlinkIrPanel extends HTMLElement {
     const s = this._state;
 
     return `<div class="card">
-      <h2>Saved</h2>
-      <p class="muted">Written to <code>${esc(s.saved.path)}</code>.</p>
+      <h2>${this._t("saved.heading", "Saved")}</h2>
+      <p class="muted">${this._t("saved.writtenTo", "Written to <code>{path}</code>.", {
+        path: esc(s.saved.path),
+      })}</p>
       ${
         s.saved.warnings && s.saved.warnings.length
-          ? `<div class="status error"><strong>Worth knowing:</strong>
+          ? `<div class="status error"><strong>${this._t(
+              "saved.worthKnowing",
+              "Worth knowing:"
+            )}</strong>
              <ul>${s.saved.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>`
-          : `<div class="status ok">No gaps found.</div>`
+          : `<div class="status ok">${this._t("saved.noGaps", "No gaps found.")}</div>`
       }
     </div>
 
     ${s.created ? this._createdView() : this._createView()}
     ${this._shareView()}
 
-    <div class="row"><button id="restart">Teach another device</button></div>`;
+    <div class="row"><button id="restart">${this._t(
+      "button.teachAnother",
+      "Teach another device"
+    )}</button></div>`;
   }
 
   /**
@@ -1310,47 +1893,73 @@ class BroadlinkIrPanel extends HTMLElement {
   _shareView() {
     const x = this._state.export;
 
+    const heading = this._t("share.heading", "Send it upstream");
+
     if (!x) {
       return `<div class="card">
-        <h2>Send it upstream</h2>
+        <h2>${heading}</h2>
         <p class="muted">
-          The file was written, but it could not be read back for export.
-          It is still on disk at the path above.
+          ${this._t(
+            "share.noExport",
+            "The file was written, but it could not be read back for export. It " +
+              "is still on disk at the path above."
+          )}
         </p>
       </div>`;
     }
 
     return `<div class="card">
-      <h2>Send it upstream</h2>
+      <h2>${heading}</h2>
       <p class="muted">
-        A device file only helps the next person if it leaves this machine. Two
-        things, in this order:
+        ${this._t(
+          "share.intro",
+          "A device file only helps the next person if it leaves this machine. " +
+            "Two things, in this order:"
+        )}
       </p>
       <div class="row" style="margin-top:.75rem">
-        <button id="copy_json">Copy JSON</button>
-        <button id="download_json">Download ${esc(x.filename)}</button>
+        <button id="copy_json">${this._t("button.copyJson", "Copy JSON")}</button>
+        <button id="download_json">${this._t(
+          "button.downloadFile",
+          "Download {filename}",
+          { filename: esc(x.filename) }
+        )}</button>
       </div>
       <p class="muted" style="margin-top:.4rem">
-        ${formatBytes(x.bytes)} — ${
+        ${formatBytes(x.bytes, this._lang())} — ${
           x.bytes > PASTEABLE_BYTES
-            ? `far too big for any issue URL, so it has to travel as an
-               attachment or a paste.`
-            : `small enough to paste straight into the issue.`
+            ? this._t(
+                "share.tooBig",
+                "far too big for any issue URL, so it has to travel as an " +
+                  "attachment or a paste."
+              )
+            : this._t(
+                "share.smallEnough",
+                "small enough to paste straight into the issue."
+              )
         }
       </p>
       <div class="row" style="margin-top:.75rem">
         <a class="button-link" href="${esc(x.issue_url)}" target="_blank"
-          rel="noopener">Open a pre-filled issue</a>
+          rel="noopener">${this._t(
+            "link.prefilledIssue",
+            "Open a pre-filled issue"
+          )}</a>
       </div>
       <p class="muted" style="margin-top:.4rem">
-        The make, the models, the code count and your versions are filled in
-        already; drop the file you just copied or downloaded into the box it
-        leaves for you. <strong>The link carries no codes at all</strong>, and
-        nothing is uploaded until you press the button on GitHub.
+        ${this._t(
+          "share.issueNote",
+          "The make, the models, the code count and your versions are filled in " +
+            "already; drop the file you just copied or downloaded into the box it " +
+            "leaves for you. <strong>The link carries no codes at all</strong>, " +
+            "and nothing is uploaded until you press the button on GitHub."
+        )}
       </p>
       <div class="row" style="margin-top:.75rem">
         <button id="show_raw">${
-          this._state.showRaw ? "Hide the raw JSON" : "Show the raw JSON"
+          this._state.showRaw
+            ? this._t("button.hideRaw", "Hide the raw JSON")
+            : this._t("button.showRaw", "Show the raw JSON")
         }</button>
       </div>
       ${
@@ -1362,8 +1971,10 @@ class BroadlinkIrPanel extends HTMLElement {
       }
       ${
         this._state.copied
-          ? `<div class="status ok">Copied. Paste it into the issue, or attach the
-             downloaded file.</div>`
+          ? `<div class="status ok">${this._t(
+              "share.copied",
+              "Copied. Paste it into the issue, or attach the downloaded file."
+            )}</div>`
           : ""
       }
     </div>`;
@@ -1395,7 +2006,10 @@ class BroadlinkIrPanel extends HTMLElement {
         showRaw: true,
         status: {
           kind: "error",
-          text: "The clipboard was refused. Select the text below and copy it.",
+          text: this._t(
+            "err.clipboard",
+            "The clipboard was refused. Select the text below and copy it."
+          ),
         },
       });
     }
@@ -1429,34 +2043,54 @@ class BroadlinkIrPanel extends HTMLElement {
     const s = this._state;
 
     return `<div class="card">
-      <h2>Add it to Home Assistant</h2>
-      <p class="muted">No YAML, no restart — the entity appears straight away.</p>
+      <h2>${this._t("create.heading", "Add it to Home Assistant")}</h2>
+      <p class="muted">${this._t(
+        "create.sub",
+        "No YAML, no restart — the entity appears straight away."
+      )}</p>
       <div class="grid">
         <div>
-          <label for="entity_name">Name</label>
+          <label for="entity_name">${this._t("label.name", "Name")}</label>
           <input id="entity_name" value="${esc(s.entityName)}"
-                 placeholder="My ${esc(PLATFORM_LABELS[s.platform])}" />
+                 placeholder="${esc(
+                   this._t("placeholder.myPlatform", "My {platform}", {
+                     platform: this._platformLabel(s.platform),
+                   })
+                 )}" />
         </div>
         <div>
-          <label for="remote">Broadlink remote</label>
+          <label for="remote">${this._t("label.remote", "Broadlink remote")}</label>
           ${this._remoteSelect()}
         </div>
       </div>
       <p class="muted" style="margin-top:.5rem">
-        Already set to the remote you captured through; change it only if this
-        device sits in front of a different one.
+        ${this._t(
+          "create.remoteNote",
+          "Already set to the remote you captured through; change it only if " +
+            "this device sits in front of a different one."
+        )}
       </p>
       <div class="row" style="margin-top:1rem">
         <button class="primary" id="create" ${s.creating ? "disabled" : ""}>
-          ${s.creating ? "Creating…" : "Create the entity"}
+          ${
+            s.creating
+              ? this._t("button.creating", "Creating…")
+              : this._t("button.create", "Create the entity")
+          }
         </button>
       </div>
       ${this._statusView()}
       <details style="margin-top:1rem">
-        <summary class="muted">Or write it into configuration.yaml yourself</summary>
-        <p class="muted">Only worth it if you keep your entities in YAML. It needs
-          a restart, and the two ways of configuring one device do not know about
-          each other — so pick one, not both.</p>
+        <summary class="muted">${this._t(
+          "create.yamlSummary",
+          "Or write it into configuration.yaml yourself"
+        )}</summary>
+        <p class="muted">${this._t(
+          "create.yamlNote",
+          "Only worth it if you keep your entities in YAML. It needs a restart, " +
+            "and the two ways of configuring one device do not know about each " +
+            "other — so pick one, not both."
+        )}</p>
         <pre>${esc(this._yaml())}</pre>
       </details>
     </div>`;
@@ -1468,23 +2102,47 @@ class BroadlinkIrPanel extends HTMLElement {
     const label = created.entity_id || created.title;
 
     return `<div class="card">
-      <h2>${created.existing ? "Already in Home Assistant" : "Added to Home Assistant"}</h2>
+      <h2>${
+        created.existing
+          ? this._t("created.already", "Already in Home Assistant")
+          : this._t("created.added", "Added to Home Assistant")
+      }</h2>
       <div class="status ok">
         ${
           created.existing
-            ? `<code>${esc(label)}</code> already uses device code
-               ${esc(s.saved.device_code)}. It has been reloaded, so it is running
-               on the file you just saved.`
-            : `Created <code>${esc(label)}</code>. Nothing to restart.`
+            ? this._t(
+                "created.existingText",
+                "<code>{label}</code> already uses device code {code}. It has " +
+                  "been reloaded, so it is running on the file you just saved.",
+                { label: esc(label), code: esc(s.saved.device_code) }
+              )
+            : this._t(
+                "created.newText",
+                "Created <code>{label}</code>. Nothing to restart.",
+                { label: esc(label) }
+              )
         }
       </div>
       <div class="row" style="margin-top:1rem">
-        ${created.entity_id ? `<button class="primary" id="show">Show it</button>` : ""}
-        <a href="/config/integrations/integration/hub_ir">Manage HubIR devices</a>
+        ${
+          created.entity_id
+            ? `<button class="primary" id="show">${this._t(
+                "button.show",
+                "Show it"
+              )}</button>`
+            : ""
+        }
+        <a href="/config/integrations/integration/hub_ir">${this._t(
+          "link.manage",
+          "Manage HubIR devices"
+        )}</a>
       </div>
       <p class="muted" style="margin-top:.75rem">
-        Rename it, put it in an area, or point it at a different remote from
-        Settings &rarr; Devices &amp; services &rarr; HubIR.
+        ${this._t(
+          "created.renameNote",
+          "Rename it, put it in an area, or point it at a different remote from " +
+            "Settings &rarr; Devices &amp; services &rarr; HubIR."
+        )}
       </p>
     </div>`;
   }
@@ -1499,7 +2157,9 @@ class BroadlinkIrPanel extends HTMLElement {
             `<option value="${esc(r.entity_id)}"${
               r.entity_id === s.remote ? " selected" : ""
             }${r.can_learn ? "" : " disabled"}>${esc(r.name)}${
-              r.can_learn ? "" : " — not a Broadlink remote"
+              r.can_learn
+                ? ""
+                : esc(this._t("remote.notBroadlink", " — not a Broadlink remote"))
             }</option>`
         )
         .join("")}
@@ -1509,8 +2169,11 @@ class BroadlinkIrPanel extends HTMLElement {
   /** The manual escape hatch, for people who keep their entities in YAML. */
   _yaml() {
     const s = this._state;
-    const name = String(s.entityName || "").trim() ||
-      `My ${PLATFORM_LABELS[s.platform]}`;
+    const name =
+      String(s.entityName || "").trim() ||
+      this._t("placeholder.myPlatform", "My {platform}", {
+        platform: this._platformLabel(s.platform),
+      });
     return `${s.platform}:
   - platform: hub_ir
     name: ${name}
@@ -1673,7 +2336,7 @@ class BroadlinkIrPanel extends HTMLElement {
         try {
           this._downloadJson(await this._export(Number(node.dataset.download)));
         } catch (err) {
-          this._set({ status: { kind: "error", text: describe(err) } });
+          this._set({ status: { kind: "error", text: this._describe(err) } });
         }
       });
     }
@@ -1755,44 +2418,66 @@ function chip(key, label, pressed) {
  * replaced accepted "low,, high" and silently dropped the hole, and accepted
  * "High" alongside "high" as two different keys in the command tree.
  */
-function listValue(raw, config, list) {
+function listValue(raw, config, list, lang = "") {
   const text = String(raw ?? "").trim();
+  const say = (key, fallback, values) =>
+    fill(tr(lang, key, fallback), values || {});
 
-  if (!text) return { error: "Type something first." };
+  if (!text) return { error: say("err.typeSomething", "Type something first.") };
   if (text.includes("/")) {
     return {
-      error: "A name cannot contain a slash — it would split the code's key in two.",
+      error: say(
+        "err.noSlash",
+        "A name cannot contain a slash — it would split the code's key in two."
+      ),
     };
   }
   if (text.includes(",")) {
-    return { error: "Add them one at a time; commas are not needed any more." };
+    return {
+      error: say(
+        "err.oneAtATime",
+        "Add them one at a time; commas are not needed any more."
+      ),
+    };
   }
   if (text.length > MAX_NAME_LENGTH) {
-    return { error: `Keep it under ${MAX_NAME_LENGTH} characters.` };
+    return {
+      error: say("err.tooLong", "Keep it under {max} characters.", {
+        max: MAX_NAME_LENGTH,
+      }),
+    };
   }
 
   if (config.numeric) {
     const number = Number(text);
     if (!Number.isFinite(number)) {
-      return { error: "Numbers only — 2700, not “warm”." };
+      return { error: say("err.numbersOnly", "Numbers only — 2700, not “warm”.") };
     }
-    if (number <= 0) return { error: "Must be a positive number." };
+    if (number <= 0) {
+      return { error: say("err.positive", "Must be a positive number.") };
+    }
     if (list.some((entry) => Number(entry) === number)) {
-      return { error: `${number} is already in the list.` };
+      return {
+        error: say("err.duplicateNumber", "{value} is already in the list.", {
+          value: number,
+        }),
+      };
     }
     return { value: number };
   }
 
   if (list.some((entry) => String(entry).toLowerCase() === text.toLowerCase())) {
-    return { error: `“${text}” is already in the list.` };
+    return {
+      error: say("err.duplicate", "“{value}” is already in the list.", { value: text }),
+    };
   }
   return { value: text };
 }
 
 /** Describe a file size the way someone deciding how to send it would read it. */
-function formatBytes(bytes) {
+function formatBytes(bytes, lang = "") {
   const size = Number(bytes) || 0;
-  if (size < 1024) return `${size} bytes`;
+  if (size < 1024) return `${size} ${tr(lang, "unit.bytes", "bytes")}`;
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
@@ -1805,12 +2490,15 @@ function slugify(value) {
 }
 
 /** Guess a name from what the user already typed on the identify step. */
-function defaultName(spec, platform) {
+function defaultName(spec, platform, lang = "") {
   const model = String((spec.models || [])[0] ?? "").trim();
   const guess = [String(spec.manufacturer || "").trim(), model]
     .filter(Boolean)
     .join(" ");
-  return guess || `My ${PLATFORM_LABELS[platform]}`;
+  if (guess) return guess;
+  return fill(tr(lang, "placeholder.myPlatform", "My {platform}"), {
+    platform: tr(lang, `platform.${platform}`, PLATFORM_LABELS[platform]),
+  });
 }
 
 function esc(value) {
@@ -1827,8 +2515,14 @@ function esc(value) {
   );
 }
 
-function describe(err) {
-  if (!err) return "Something went wrong.";
+/**
+ * Turn a rejected websocket call into a sentence.
+ *
+ * Only the no-details case is translated: everything else is the server's own
+ * message, and those are raised in Python where this file cannot reach them.
+ */
+function describe(err, lang = "") {
+  if (!err) return tr(lang, "err.generic", "Something went wrong.");
   return err.message || err.error || String(err);
 }
 

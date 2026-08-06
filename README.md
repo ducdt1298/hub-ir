@@ -295,10 +295,13 @@ Two behaviour changes worth knowing about before you migrate:
   create the entity, prefilled with the device code it just wrote and the remote
   you learned through. Saving over a device you already added reloads it, so
   extra codes take effect without a restart.
-- Vietnamese translation of every dialog the integration owns: the add and
-  configure forms, the errors they can report, and the two services as they
-  appear in the action picker. Home Assistant picks it up from the language in
-  your profile. The sidebar panel is still English only.
+- Vietnamese throughout: the add and configure forms, the errors they can
+  report, the two services as the action picker shows them, and the whole
+  learning panel — including the capture labels the server builds, which are
+  translated token by token so the mode names and speeds inside them, being keys
+  in the device file, come through untouched. Home Assistant picks the language
+  up from your profile, and anything untranslated falls back to English rather
+  than to a raw key.
 - HubIR has a logo. It lives in [brand/](brand/); the integrations page and HACS
   will show it once it is accepted into
   [home-assistant/brands](https://github.com/home-assistant/brands).

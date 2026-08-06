@@ -1443,6 +1443,121 @@ def test_the_pieces_of_the_integration_agree_on_its_name() -> None:
     )
 
 
+def _panel_translation_table(language: str) -> dict[str, str]:
+    """Return the panel's translation table for one language, keys only.
+
+    Parsed rather than imported: it is JavaScript. Only the keys are needed —
+    what they translate to is a matter of taste, not of correctness.
+    """
+    js = _panel_source()
+    table = re.search(
+        rf"^  {language}: \{{$(.+?)^  \}},$", js, re.S | re.M
+    ).group(1)
+    return dict.fromkeys(re.findall(r'^    "([^"]+)":', table, re.M), "")
+
+
+def _panel_keys_rendered() -> set[str]:
+    """Every translation key the panel can ask for.
+
+    Three call shapes reach the table — `this._t`, and `tr`/`say` in the module
+    level helpers — plus the families built from a template literal, which are
+    spelled out here from the same lists the panel builds them from.
+    """
+    js = _panel_source()
+    keys = set()
+    for pattern in (r'_t\(\s*"([^"]+)"', r'tr\(lang, "([^"]+)"', r'say\(\s*"([^"]+)"'):
+        keys |= set(re.findall(pattern, js))
+
+    keys |= {f"platform.{platform}" for platform in PLATFORMS}
+
+    block = re.search(r"const LIST_FIELDS = \{(.+?)\n\};", js, re.S).group(1)
+    for field, body in re.findall(r"\n  (\w+): \{(.+?)\n  \},", block, re.S):
+        keys |= {f"list.{field}.label", f"list.{field}.one"}
+        if "note:" in body:
+            keys.add(f"list.{field}.note")
+    return keys
+
+
+# Specs whose every name is nonsense, so that anything recognisable coming back
+# out of capture_plan is text the panel has to translate rather than a key the
+# user typed.
+_NONSENSE_SPECS = {
+    "climate": {
+        "minTemperature": 16,
+        "maxTemperature": 17,
+        "precision": 1,
+        "operationModes": ["qmode"],
+        "fanModes": ["qfan"],
+        "swingModes": ["qswing"],
+        "hasOnCommand": True,
+        "presets": ["qpreset"],
+        "extraCommands": ["qextra"],
+    },
+    # A second climate pass: a mode that ignores both is the only thing that
+    # produces the "any fan" label.
+    "climate_any_fan": {
+        "minTemperature": 16,
+        "maxTemperature": 17,
+        "precision": 1,
+        "operationModes": ["qmode"],
+        "fanModes": ["qfan"],
+        "modeOptions": {"qmode": {"usesFan": False, "usesTemperature": False}},
+    },
+    "fan": {"speed": ["qspeed"], "hasDirection": True, "hasOscillate": True},
+    "light": {"brightness": [1], "colorTemperature": [2700], "hasNight": True},
+    "media_player": {"sources": ["qsource"], "extraCommands": ["qextra"]},
+    "switch": {"hasToggle": True, "extraCommands": ["qextra"]},
+}
+
+# Tokens inside a capture label that are keys in the command tree, not prose:
+# the fan's direction groups, and any temperature.
+_PLAN_DATA = {"default", "forward", "reverse"}
+
+
+def _plan_prose() -> set[str]:
+    """Every fixed English word capture_plan can put in front of a user."""
+    prose = set()
+    for name, spec in _NONSENSE_SPECS.items():
+        platform = name.split("_", 1)[0] if name.startswith("climate") else name
+        for cell in capture_plan(platform, spec):
+            # The preset label wraps a sentence around its state; the panel
+            # takes that apart before splitting, so this has to as well.
+            label = cell["label"]
+            if match := re.match(r"^(.*) — set the remote to (.*) first$", label):
+                prose.add("presetHint")
+                label = f"{match.group(1)} · {match.group(2)}"
+            for token in [*label.split(" · "), cell["group"]]:
+                if token in _PLAN_DATA or re.search(r"\d", token):
+                    continue
+                if any(
+                    token in (value if isinstance(value, list) else [value])
+                    for value in spec.values()
+                ):
+                    continue
+                prose.add(token)
+    return prose
+
+
+def test_the_panel_has_a_translation_for_everything_it_renders() -> None:
+    """A key with no entry falls back to English, silently and for good.
+
+    That fallback is deliberate — an untranslated panel reads as English rather
+    than as a wall of dotted keys — which is exactly why it needs a test: a
+    string added without a translation looks fine to whoever added it.
+    """
+    vietnamese = _panel_translation_table("vi")
+    rendered = _panel_keys_rendered()
+    plan = {f"plan.{token}" for token in _plan_prose()}
+
+    assert rendered <= vietnamese.keys(), sorted(rendered - vietnamese.keys())
+    assert plan <= vietnamese.keys(), sorted(plan - vietnamese.keys())
+    # And nothing left over: a key nobody asks for is a string that changed name
+    # in the markup and was never followed up in the table.
+    assert vietnamese.keys() <= rendered | plan, sorted(
+        vietnamese.keys() - (rendered | plan)
+    )
+
+
 def test_every_translation_carries_exactly_the_keys_english_does() -> None:
     """A key only the translation has is dead weight; a missing one shows English.
 

@@ -1443,6 +1443,37 @@ def test_the_pieces_of_the_integration_agree_on_its_name() -> None:
     )
 
 
+def test_every_translation_carries_exactly_the_keys_english_does() -> None:
+    """A key only the translation has is dead weight; a missing one shows English.
+
+    Home Assistant looks every label up by key and falls back to English when a
+    key is absent, so drift is silent: a renamed key leaves a dialog in two
+    languages and nothing complains. Checked structurally rather than file by
+    file, so a language added later is covered without touching this test.
+    """
+    package = Path(__file__).resolve().parent.parent / "custom_components" / "hub_ir"
+    english = json.loads((package / "strings.json").read_text(encoding="utf-8"))
+
+    def paths(node: object, prefix: str = "") -> set[str]:
+        if not isinstance(node, dict):
+            return {prefix}
+        return {
+            p for key, value in node.items() for p in paths(value, f"{prefix}/{key}")
+        }
+
+    expected = paths(english)
+
+    for path in sorted((package / "translations").glob("*.json")):
+        if path.name == "en.json":
+            # Asserted equal to strings.json above, which is stricter.
+            continue
+        translated = paths(json.loads(path.read_text(encoding="utf-8")))
+        assert translated == expected, (
+            f"{path.name}: missing {sorted(expected - translated)}, "
+            f"unexpected {sorted(translated - expected)}"
+        )
+
+
 def test_the_panel_calls_only_commands_the_server_defines() -> None:
     """A renamed or mistyped command would fail silently in the browser.
 

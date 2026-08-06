@@ -50,7 +50,7 @@ from .device_file import has_any_code, is_recorded  # noqa: F401
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "hub_ir"
-VERSION = "3.3.0"
+VERSION = "3.4.0"
 
 COMPONENT_ABS_DIR = os.path.dirname(os.path.abspath(__file__))
 

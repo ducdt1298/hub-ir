@@ -156,7 +156,7 @@ class HubIRSwitch(HubIRCommandMixin, SwitchEntity, RestoreEntity):
         if not any(self._has_code(name) for name in (CMD_ON, CMD_OFF, CMD_TOGGLE)):
             raise HomeAssistantError(
                 f"Device code {self._device_code} records no 'on', 'off' or "
-                "'toggle' code, so this switch could never do anything"
+                "'toggle' code, so the switch has no usable commands"
             )
 
         self._state = STATE_OFF
@@ -210,7 +210,7 @@ class HubIRSwitch(HubIRCommandMixin, SwitchEntity, RestoreEntity):
         if not is_recorded(command):
             raise HomeAssistantError(
                 f"Device code {self._device_code} has no code recorded for "
-                f"'{name}', so that cannot be controlled from Home Assistant"
+                f"'{name}'; it cannot be controlled"
             )
         return command
 

@@ -67,7 +67,9 @@ def broadlink_unique_id(hass: HomeAssistant, remote_entity_id: str) -> str:
 
     device = dr.async_get(hass).async_get(entity_entry.device_id)
     if device is None:
-        raise HomeAssistantError(f"The device behind {remote_entity_id} is gone")
+        raise HomeAssistantError(
+            f"The device behind {remote_entity_id} no longer exists"
+        )
 
     for domain, identifier in device.identifiers:
         if domain == BROADLINK_DOMAIN:
@@ -107,8 +109,8 @@ def _assert_remote_ready(hass: HomeAssistant, remote_entity_id: str) -> None:
     if state.state == "off":
         # async_learn_command logs a warning and returns without learning.
         raise HomeAssistantError(
-            f"The remote entity {remote_entity_id} is turned off, and a remote "
-            "that is off cannot learn. Turn it on and try again"
+            f"The remote entity {remote_entity_id} is turned off. A remote that is "
+            "off cannot learn. Turn it on and retry"
         )
 
 
@@ -132,7 +134,7 @@ async def async_learn_ir_code(
 
     before = await _load_codes(hass, unique_id)
     if command in (before.get(SCRATCH_DEVICE) or {}):
-        raise HomeAssistantError("Learning scratch name collided; try again")
+        raise HomeAssistantError("Scratch command name collision. Retry")
 
     await hass.services.async_call(
         "remote",
@@ -154,8 +156,8 @@ async def async_learn_ir_code(
 
     if not code:
         raise HomeAssistantError(
-            "No infrared code arrived within 30 seconds. Point the remote at the "
-            "Broadlink, hold it close, and press the button once"
+            "No infrared code was received within 30 seconds. Point the remote at "
+            "the Broadlink at close range and press the button once"
         )
 
     return code

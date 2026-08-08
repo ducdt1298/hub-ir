@@ -118,12 +118,12 @@ class HubIRCommandMixin:
         repeat: int = 1,
         delay: float = DEFAULT_REPEAT_DELAY,
     ) -> None:
-        """Send the code a path names, without touching the entity's state.
+        """Send the code a path names, without changing the entity's state.
 
-        Deliberately does not update the entity. Pressing 'extras/menu' says
-        nothing about whether the device is on, which mode it is in or which
-        source it shows, and guessing would be worse than staying quiet. Use the
-        platform's own service for the things it does model.
+        Deliberately does not update the entity. Sending 'extras/menu' says
+        nothing about whether the device is on, which mode it is in, or which
+        source it shows. Use the platform's own services for state the entity
+        models.
         """
         code = resolve_command(self._commands, command)
         if not is_recorded(code):
@@ -136,7 +136,7 @@ class HubIRCommandMixin:
                 await self._controller.send(code)
 
     def _unknown_command_message(self, command: str) -> str:
-        """Explain an unresolved path, and say what would have worked."""
+        """Report an unresolved path, listing the paths that do exist."""
         available = command_paths(self._commands)
         shown = ", ".join(available[:MAX_SUGGESTIONS])
         more = (

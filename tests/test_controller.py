@@ -67,7 +67,9 @@ async def test_pronto_command_is_converted(hass: HomeAssistant, sent_commands) -
 
 async def test_unsupported_controller_is_rejected(hass: HomeAssistant) -> None:
     """A non-Broadlink device file fails with an actionable message."""
-    with pytest.raises(HomeAssistantError, match="only supports the Broadlink"):
+    with pytest.raises(
+        HomeAssistantError, match="supports the Broadlink controller only"
+    ):
         get_controller(hass, "Xiaomi", "Pronto", "remote.rm4", 0.5)
 
 
@@ -213,7 +215,7 @@ async def test_loader_refuses_a_device_file_with_no_codes(
         },
     )
 
-    with pytest.raises(HomeAssistantError, match="no codes recorded at all"):
+    with pytest.raises(HomeAssistantError, match="contains no codes"):
         await Helper.load_device_data(hass, "light", 4246)
 
 
@@ -252,7 +254,7 @@ async def test_annotations_alone_do_not_count_as_codes(
         },
     )
 
-    with pytest.raises(HomeAssistantError, match="no codes recorded at all"):
+    with pytest.raises(HomeAssistantError, match="contains no codes"):
         await Helper.load_device_data(hass, "light", 4248)
 
 

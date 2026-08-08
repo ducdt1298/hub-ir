@@ -114,33 +114,30 @@ you added by hand. Copy those out of
 `custom_components/hub_ir/codes/<platform>/` before you reinstall or migrate,
 and drop them back in afterwards.
 
-## Recording a device of your own
+## Recording a device
 
-If your air conditioner is not in the tables below, the **HubIR** panel in
-the sidebar records it — no Developer Tools, no SSH, no hand-written JSON.
+If a device is not in the tables below, the **HubIR** panel in the sidebar
+records it: no Developer Tools, no SSH, no hand-written JSON.
 
-It shows one code at a time in the order the buttons sit on your remote, and
-moves on by itself the moment a code arrives, so recording a device is a run of
-button presses rather than a session of copy-and-paste. It asks up front which
-modes ignore the temperature or the fan speed, which is what turns the 180 codes
-a typical air conditioner needs into around 120. Files are saved under device
-codes from 90000 up, so they can never shadow a shipped one.
+It presents one code at a time in the order the buttons are laid out on the
+remote and advances as soon as a code arrives, so recording a device is a
+sequence of button presses rather than copy-and-paste. It asks first which modes
+ignore the temperature or the fan speed, which reduces the 180 codes a typical
+air conditioner needs to around 120. Files are saved under device codes from
+90000 upward, so they can never shadow a shipped one.
 
-It can also start from a device file that is nearly right — any of the 407
-shipped ones — carrying over its settings and every code it already holds, so
-only the gaps are captured. Saving always writes to a code of your own, so the
-original is never touched.
+It can also start from an existing device file — any of the 407 shipped ones —
+carrying over its settings and every code it holds, leaving only the gaps to
+capture. Saving always writes to a local device code; the original is unchanged.
 
-A hundred-odd codes is more than one sitting, so **Save draft** parks an
-unfinished recording on the server — settings, codes, skips and the code you
-were on. It waits for you at the top of the first screen, and because it is on
-the server rather than in the browser you can declare the unit on a laptop,
-capture half of it from a phone standing beside it, and finish it back at the
-desk.
+**Save draft** stores an unfinished recording on the server: settings, codes,
+skipped positions and the current position. Drafts are listed at the top of the
+first screen. Because they are held on the server rather than in the browser, a
+unit can be declared on a laptop, captured from a phone beside it, and finished
+at the desk.
 
-When it has saved the file it offers to create the entity there and then, so
-recording a device the tables do not cover never involves a text editor or a
-restart at all.
+Once the file is saved the panel offers to create the entity, so recording a
+device the tables do not cover involves neither a text editor nor a restart.
 
 See [docs/PANEL.md](docs/PANEL.md).
 
@@ -303,13 +300,6 @@ Two behaviour changes worth knowing about before you migrate:
   create the entity, prefilled with the device code it just wrote and the remote
   you learned through. Saving over a device you already added reloads it, so
   extra codes take effect without a restart.
-- Vietnamese throughout: the add and configure forms, the errors they can
-  report, the two services as the action picker shows them, and the whole
-  learning panel — including the capture labels the server builds, which are
-  translated token by token so the mode names and speeds inside them, being keys
-  in the device file, come through untouched. Home Assistant picks the language
-  up from your profile, and anything untranslated falls back to English rather
-  than to a raw key.
 - HubIR has a logo. It lives in [brand/](brand/); the integrations page and HACS
   will show it once it is accepted into
   [home-assistant/brands](https://github.com/home-assistant/brands).

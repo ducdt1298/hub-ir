@@ -47,9 +47,9 @@ def get_controller(
     """Return a controller for the device file's supportedController."""
     if controller != BROADLINK_CONTROLLER:
         raise HomeAssistantError(
-            f"This integration only supports the {BROADLINK_CONTROLLER} controller, "
-            f"but this device file requires '{controller}'. Pick a "
-            "device code whose supportedController is Broadlink"
+            f"This integration supports the {BROADLINK_CONTROLLER} controller only, "
+            f"but this device file requires '{controller}'. Choose a device code "
+            "whose supportedController is Broadlink"
         )
 
     return BroadlinkController(hass, controller, encoding, controller_data, delay)
@@ -148,8 +148,8 @@ class BroadlinkController:
                 _decode_like_broadlink(command)
             except (binascii.Error, ValueError) as err:
                 raise HomeAssistantError(
-                    f"The recorded code is not valid base64 ({err}). This entry "
-                    "in the device file is corrupt; re-record it or pick another "
+                    f"The recorded code is not valid base64 ({err}). This entry in "
+                    "the device file is corrupt. Re-record it or choose another "
                     "device code"
                 ) from err
             return command

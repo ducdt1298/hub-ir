@@ -334,7 +334,7 @@ def _check_placeholders(commands: Any, report: Report) -> None:
     )
     report.warn(
         f"{len(placeholders)} command(s) have no code recorded: {shown}{more}. "
-        "The integration skips these and refuses to transmit them"
+        "The integration skips these and refuses to transmit them."
     )
 
 
@@ -402,8 +402,8 @@ def _check_codes_decode(
     if known_bad:
         report.warn(
             f"{len(known_bad)} known-corrupt code(s) inherited from upstream: "
-            f"{', '.join(known_bad)}. The integration refuses to transmit these "
-            "and says why; re-record them or use another device code"
+            f"{', '.join(known_bad)}. The integration refuses to transmit these. "
+            "Re-record them or use another device code."
         )
 
     if malformed:
@@ -414,9 +414,9 @@ def _check_codes_decode(
             else ""
         )
         report.warn(
-            f"{len(malformed)} code(s) decode but do not look like a Broadlink "
-            f"packet: {shown}{more}. They were probably captured badly and may "
-            "not work on the device"
+            f"{len(malformed)} code(s) decode but are not well-formed Broadlink "
+            f"packets: {shown}{more}. These were most likely captured incorrectly "
+            "and may not work on the device."
         )
 
 
@@ -429,9 +429,9 @@ def _check_preset_baseline(data: dict, report: Report) -> None:
     if baseline is None:
         if has_presets:
             report.warn(
-                "commands.presets records codes but presetBaseline is missing, so "
-                "the entity will send the preset without being able to report the "
-                "mode, fan speed and temperature the code actually commands"
+                "commands.presets records codes but presetBaseline is missing. "
+                "The entity will transmit the preset without being able to report "
+                "the mode, fan speed and temperature the code commands."
             )
         return
 
@@ -449,8 +449,8 @@ def _check_preset_baseline(data: dict, report: Report) -> None:
         value = baseline.get(key)
         if value is not None and value not in (data.get(declared) or []):
             report.warn(
-                f"presetBaseline.{key} {value!r} is not in {declared}, so the "
-                "entity substitutes the nearest one it knows"
+                f"presetBaseline.{key} {value!r} is not in {declared}; the entity "
+                "substitutes the nearest declared value."
             )
 
     temperature = baseline.get("temperature")
@@ -493,8 +493,8 @@ def _check_climate(data: dict, report: Report) -> None:
     if not declared and inferred == "F":
         report.error(
             f"the {min_temp}-{max_temp} range cannot be Celsius, so this file "
-            'must declare "temperatureUnit": "F" instead of leaving the '
-            "integration to infer it"
+            'must declare "temperatureUnit": "F" rather than leave it to be '
+            "inferred"
         )
 
     commands = data.get("commands")
@@ -522,8 +522,8 @@ def _check_climate(data: dict, report: Report) -> None:
             operation_modes.append(mode)
         else:
             report.warn(
-                f"operationMode {mode!r} is not a Home Assistant HVAC mode, "
-                "so the entity ignores it"
+                f"operationMode {mode!r} is not a Home Assistant HVAC mode; the "
+                "entity ignores it"
             )
 
     # The rest mirrors climate.py's lookup: a missing fan or swing mode is

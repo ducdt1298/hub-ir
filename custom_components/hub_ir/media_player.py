@@ -231,7 +231,7 @@ class HubIRMediaPlayer(HubIRCommandMixin, MediaPlayerEntity, RestoreEntity):
         if not is_recorded(command):
             raise HomeAssistantError(
                 f"Device code {self._device_code} has no code recorded for "
-                f"'{name}', so that cannot be controlled from Home Assistant"
+                f"'{name}'; it cannot be controlled"
             )
         return command
 
@@ -375,13 +375,13 @@ class HubIRMediaPlayer(HubIRCommandMixin, MediaPlayerEntity, RestoreEntity):
         # an automation whose play_media call does nothing should be told.
         if media_type != MediaType.CHANNEL:
             raise HomeAssistantError(
-                f"Invalid media type '{media_type}': this device can only tune to "
+                f"Invalid media type '{media_type}'. This device can only tune to "
                 f"a channel, so media_content_type must be '{MediaType.CHANNEL}'"
             )
         if not media_id.isdigit():
             raise HomeAssistantError(
-                f"Invalid media id '{media_id}': it must be a channel number, "
-                "because the channel is entered one digit at a time"
+                f"Invalid media id '{media_id}'. It must be a channel number: the "
+                "channel is entered one digit at a time"
             )
 
         sources = self._commands.get("sources") or {}
@@ -393,7 +393,7 @@ class HubIRMediaPlayer(HubIRCommandMixin, MediaPlayerEntity, RestoreEntity):
         if missing:
             raise HomeAssistantError(
                 f"Device code {self._device_code} has no 'Channel {missing[0]}' "
-                f"source recorded, so it cannot tune to {media_id}"
+                f"source recorded and cannot tune to {media_id}"
             )
 
         if self._state == MediaPlayerState.OFF:

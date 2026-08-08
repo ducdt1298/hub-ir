@@ -1,29 +1,27 @@
-"""Half-finished recordings, kept between sittings.
+"""Unfinished recordings, retained between sessions.
 
-A real air conditioner is 120 to 180 codes, and the largest file in the
-repository holds 2689. Nobody records that in one go. Until now the panel's
-progress lived only in the browser tab: a reload, a crash, or a phone going
-flat lost every code captured that evening, and the only way back was to save a
-half-empty device file into ``codes/`` and reopen it as a template — which lost
-the skip marks and the position along with it.
+An air conditioner requires 120 to 180 codes, and the largest file in the
+repository holds 2689. Recording that in one session is impractical. The panel's
+progress otherwise exists only in the browser tab, where a reload or a crash
+discards it; the alternative was to save a half-empty device file into ``codes/``
+and reopen it as a template, which discards the skip marks and the position.
 
-A draft is that session, parked on the server. It holds what the panel cannot
-recompute: the spec, the codes captured so far, which cells were deliberately
-skipped, and where the cursor was. It deliberately does **not** hold the capture
-plan. The plan is whatever ``capture_plan()`` derives from the spec at the
-moment of resuming, so a draft written by an older version can never revive a
-stale list of cells.
+A draft is that session, held on the server. It stores what the panel cannot
+recompute: the spec, the codes captured so far, which cells were skipped, and
+the cursor position. It deliberately does **not** store the capture plan. The
+plan is derived by ``capture_plan()`` from the spec at the moment of resuming,
+so a draft written by an older version cannot restore a stale list of cells.
 
-Drafts live in ``.storage/hub_ir.drafts``, not under ``codes/``. Two reasons:
-a draft is not a device file and nothing that scans ``codes/`` should have to
-learn to ignore it, and ``.storage`` is untouched by a HACS update without
-needing ``persistent_directory`` to cover it.
+Drafts are held in ``.storage/hub_ir.drafts``, not under ``codes/``. A draft is
+not a device file, and nothing that scans ``codes/`` should have to exclude one;
+``.storage`` also survives a HACS update without ``persistent_directory``
+covering it.
 
-This module keeps the same discipline as ``device_file.py`` about its imports:
-Home Assistant and the standard library, nothing from this package. It is the
-first store this integration owns — ``learn.py`` only reads Broadlink's — so
-the version constant below starts its own lineage, and at version 1 there is
-nothing to migrate from.
+This module follows the same import discipline as ``device_file.py``: Home
+Assistant and the standard library only, nothing from this package. It is the
+first store this integration owns — ``learn.py`` only reads Broadlink's — so the
+version constant below starts its own lineage, with nothing to migrate from at
+version 1.
 """
 
 from __future__ import annotations
@@ -43,26 +41,24 @@ DRAFT_STORAGE_KEY = "hub_ir.drafts"
 DRAFT_DATA_KEY = "hub_ir_drafts"
 DRAFT_LOCK_KEY = "hub_ir_drafts_lock"
 
-# A ceiling on how much unfinished work accumulates. Twenty half-learned
-# devices is already more than anyone is really juggling, and without a limit a
-# store that is never tidied grows without anything ever noticing.
+# A ceiling on accumulated unfinished work. Without a limit, a store that is
+# never pruned grows unbounded.
 MAX_DRAFTS = 20
 
-# Comfortably above the largest real device file (2689 codes), so this only
-# ever catches something that has gone wrong rather than a genuine recording.
+# Well above the largest real device file (2689 codes), so this catches only a
+# malfunction rather than a genuine recording.
 MAX_DRAFT_CODES = 4000
 
 
 class DraftError(HomeAssistantError):
-    """A draft was refused, with a sentence explaining why."""
+    """A draft was rejected, with the reason."""
 
 
 def draft_key(platform: str, device_code: int) -> str:
     """Return the key a draft is filed under.
 
-    Platform and device code together, because that pair is exactly what the
-    draft will be saved as, and starting a second recording for the same target
-    is a continuation of the first rather than a new thing.
+    Platform and device code together, because that pair is what the draft will
+    be saved as. A second recording for the same target continues the first.
     """
     return f"{platform}/{device_code}"
 
@@ -70,10 +66,9 @@ def draft_key(platform: str, device_code: int) -> str:
 async def _async_drafts(hass: HomeAssistant) -> tuple[Store, dict[str, Any]]:
     """Return the store and the live dict of drafts, loading it once.
 
-    The dict is cached rather than re-read on every call, so a save is a
-    modification of what is already in hand. Reading afresh each time would
-    open a window in which two panels, or two tabs, each load the same state
-    and the second write silently drops the first one's draft.
+    The dict is cached rather than re-read on every call, so a save modifies
+    state already held. Re-reading each time would open a window in which two
+    tabs load the same state and the second write discards the first draft.
     """
     cached = hass.data.get(DRAFT_DATA_KEY)
     if cached is not None:
@@ -117,15 +112,15 @@ async def async_save_draft(
 ) -> dict[str, Any]:
     """Write one draft, replacing any earlier draft for the same target.
 
-    Returns the stored draft, which carries the ``updated`` stamp the panel
-    shows in its list. The caller is expected to have validated the shape; what
-    is enforced here is only what the store itself has to protect.
+    Returns the stored draft, carrying the ``updated`` timestamp the panel shows
+    in its list. The caller validates the shape; this function enforces only the
+    limits the store itself has to protect.
     """
     codes = draft.get("codes") or {}
     if len(codes) > MAX_DRAFT_CODES:
         raise DraftError(
-            f"This draft holds {len(codes)} codes, more than the {MAX_DRAFT_CODES} "
-            "a single recording is expected to need"
+            f"This draft holds {len(codes)} codes, exceeding the limit of "
+            f"{MAX_DRAFT_CODES} for a single recording"
         )
 
     key = draft_key(draft["platform"], draft["device_code"])
@@ -133,13 +128,12 @@ async def async_save_draft(
     async with _lock(hass):
         store, drafts = await _async_drafts(hass)
 
-        # Replacing an existing draft is always allowed, even at the limit:
-        # refusing to save progress on work already under way would be exactly
-        # the wrong moment to start enforcing tidiness.
+        # Replacing an existing draft is always allowed, even at the limit.
+        # Refusing to save progress on work already under way would lose it.
         if key not in drafts and len(drafts) >= MAX_DRAFTS:
             raise DraftError(
-                f"There are already {MAX_DRAFTS} saved drafts. Finish one or "
-                "delete one before starting another"
+                f"There are already {MAX_DRAFTS} saved drafts. Delete one before "
+                "starting another"
             )
 
         stored = {**draft, "updated": dt_util.utcnow().isoformat()}
@@ -154,9 +148,8 @@ async def async_delete_draft(
 ) -> bool:
     """Drop one draft. Returns False when there was nothing to drop.
 
-    Deleting something that is already gone is not an error: the panel deletes
-    a draft after its device file is saved, and two tabs doing that is a race
-    nobody should have to see a message about.
+    Deleting an absent draft is not an error: the panel deletes a draft once its
+    device file is saved, and two tabs doing so is a benign race.
     """
     key = draft_key(platform, device_code)
 
@@ -171,7 +164,7 @@ async def async_delete_draft(
 
 
 def describe(draft: dict[str, Any]) -> str:
-    """Return a human label for a draft: manufacturer and first model."""
+    """Return a display label for a draft: manufacturer and first model."""
     spec = draft.get("spec") or {}
     parts = [str(spec.get("manufacturer") or "").strip()]
 
@@ -186,9 +179,8 @@ def summarize(key: str, draft: dict[str, Any]) -> dict[str, Any]:
     """Return the row the panel lists a draft as.
 
     Summaries exist because the codes do not belong in a listing. One climate
-    draft is tens of kilobytes of base64, and sending every draft in full just
-    to draw a list of names would be the most expensive thing the panel does on
-    open.
+    draft is tens of kilobytes of base64, and sending every draft in full to
+    render a list of names would be the most expensive call the panel makes.
 
     The counts come from the stored dicts rather than from the capture plan,
     which the server has no reason to rebuild here. They are a progress hint;

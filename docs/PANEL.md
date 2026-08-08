@@ -1,289 +1,290 @@
 # The learning panel
 
-Teaching this integration a new device used to mean leaving the browser three
-times: call `remote.learn_command` from Developer Tools once per code, SSH in to
-read `.storage/broadlink_remote_<mac>_codes`, then hand-assemble a device file
+Recording a new device previously required leaving the browser three times: call
+`remote.learn_command` from Developer Tools once per code, connect over SSH to
+read `.storage/broadlink_remote_<mac>_codes`, then assemble a device file by hand
 and restart to find out whether it parses.
 
 The panel does all of it in one place.
 
-## Turning it on
+## Enabling it
 
 **HubIR** appears in the sidebar for administrators, because the panel writes
-into your configuration directory.
+into the configuration directory.
 
-It comes up as soon as the integration loads, which happens the moment anything
-uses it: a config entry added from **Settings → Devices & services → Add
+It becomes available as soon as the integration loads, which happens when
+anything uses it: a config entry added from **Settings → Devices & services → Add
 integration → HubIR**, or a `platform: hub_ir` in `configuration.yaml`.
 
-On a completely fresh install with neither, adding the integration once is the
-shortest route — no restart. The old way still works if you prefer YAML:
+On a fresh install with neither, adding the integration once is the shortest
+route and requires no restart. YAML also works:
 
 ```yaml
 hub_ir:
 ```
 
-## What it needs
+## Requirements
 
 A working [Broadlink](https://www.home-assistant.io/integrations/broadlink/)
 remote. Only a remote from that integration can learn: the panel reads the
-captured code back out of Broadlink's own storage, which is the step you used to
-do over SSH. Remotes from other integrations are listed but greyed out.
+captured code back out of Broadlink's own storage. Remotes from other
+integrations are listed but disabled.
 
-The remote must also be **on**. Home Assistant's Broadlink integration quietly
-declines to learn while the remote entity is off, so the panel checks first and
-says so.
+The remote must also be **on**. Home Assistant's Broadlink integration declines
+to learn while the remote entity is off, so the panel checks first and reports
+it.
 
-## Teaching an air conditioner
+## Recording an air conditioner
 
-An air conditioner is the hard case, because most of them transmit their entire
-state in every packet. A unit with 3 modes, 4 fan speeds and 15 temperatures
-genuinely needs **180 codes** — one per combination. The panel's job is to make
-that a sequence of button presses rather than a research project.
+An air conditioner is the difficult case, because most units transmit their
+entire state in every packet. A unit with 3 modes, 4 fan speeds and 15
+temperatures requires **180 codes**, one per combination.
 
-**1 · Describe the unit.** Device type, which Broadlink remote, manufacturer and
-model. The device code is filled in for you from the range reserved for your own
-files (90000 and up), so nothing you record can ever shadow one of the shipped
-device files.
+**1 · Device.** Device type, Broadlink remote, and the device code. The device
+code is filled in from the range reserved for locally recorded files (90000 and
+above), so a recording can never shadow a shipped device file.
 
-**2 · Describe what it can do.** Temperature range and step, the unit, the
-operation modes, the fan speeds, and swing positions if it has them. See
-[the lists you build by hand](#the-lists-you-build-by-hand) below.
+**2 · Identification.** Manufacturer and model. An existing device code can also
+be loaded here as a starting point; see
+[Reusing an existing device file](#reusing-an-existing-device-file).
 
-**3 · Say which modes ignore what.** This is the part worth spending a minute on.
-Most units ignore the temperature in *dry* and *fan only*, and many ignore the
-fan speed there too. Saying so turns 180 captures into around 120, and the panel
-writes the one captured code everywhere it applies, so nothing is lost.
+**3 · Temperatures and modes.** Temperature range and step, the unit, the
+operation modes, the fan speeds, and swing positions where present. See
+[the lists built by hand](#the-lists-built-by-hand).
 
-**4 · One-touch buttons.** Turbo, Eco, Sleep, Quiet — see
-[below](#one-touch-buttons-turbo-eco-sleep), because these need one decision
-made before you press anything.
+The same card carries **Mode dependencies**. Most units ignore the temperature
+in *dry* and *fan only*, and many ignore the fan speed there as well. Declaring
+this reduces 180 captures to roughly 120; the panel writes the single captured
+code to every position it applies to.
 
-**5 · Any other buttons.** Anything the entity cannot express: an LED toggle, a
-beep, a filter reset. These are not wired to a control; they are reachable by
-name from [`hub_ir.send_command`](SERVICES.md).
+**4 · One-touch buttons.** Turbo, Eco, Sleep, Quiet. See
+[below](#one-touch-buttons-turbo-eco-sleep), because these require a decision
+before any button is pressed.
 
-**6 · Capture.** The panel shows one target at a time — `cool · low · 16°C` —
-in the order the buttons sit on your remote: temperature innermost and
-ascending. Press *Start capturing*, set your remote to the target, and press
-send. The moment a code arrives the panel moves to the next target on its own.
-For most remotes that means holding *temp +* and pressing send, over and over,
-watching a row fill in without touching the browser.
+**5 · Other buttons.** Anything the entity cannot express: an LED toggle, a beep,
+a filter reset. These are not bound to a control; they are called by name from
+[`hub_ir.send_command`](SERVICES.md).
 
-Each code times out after 30 seconds. Alongside:
+**Capture.** The panel shows one target at a time — `cool · low · 16°C` — in the
+order the buttons are laid out on the remote, with temperature innermost and
+ascending. Press *Start capturing*, set the remote to the target, and press send.
+The panel advances to the next target as soon as a code arrives. For most remotes
+this means holding *temp +* and pressing send repeatedly without touching the
+browser.
 
-- **Just this one** captures a single code and stops.
+Each code times out after 30 seconds. The remaining controls:
+
+- **Capture one** captures a single code and stops.
 - **Skip** leaves a gap. The integration refuses to transmit an empty code and
-  says which one, so a gap is safe — just not useful.
-- **Test last code** transmits what was just captured, so you can confirm the
-  air conditioner reacts before going any further.
-- **Stop** ends the run; your progress stays, and **Save draft** parks it —
-  see [below](#saving-a-draft).
-
+  reports which one, so a gap is safe but not useful.
+- **Test last code** transmits what was just captured, to confirm the unit
+  responds before continuing.
+- **Stop** ends the run. **Save draft** stores the session; see
+  [Saving a draft](#saving-a-draft).
 - **Two-packet button** is for a remote whose button alternates between two
-  packets — a Samsung power key is the usual one. Symptom: a captured code works
-  every *other* press. Tick it and the panel asks the Broadlink for both and
-  stores them as a pair.
+  packets; Samsung power keys are the common case. The symptom is a captured code
+  that works on every second press. Enabling this makes the panel request both
+  packets and store them as a pair.
 
-**7 · Save, then add it.** The file is validated with exactly the same rules as
+**Save.** The file is validated with the same rules as
 `scripts/validate_codes.py` before anything is written, so it cannot produce an
-entity the integration would choke on.
+entity the integration would reject.
 
-The panel then offers to create the entity. It already knows the device code it
-wrote and the remote you learned through, so the name is the only question left
-— and it guesses that from the manufacturer and model you typed. Press **Create
-the entity** and it appears. No `configuration.yaml`, no restart.
+The panel then offers to create the entity. It already holds the device code it
+wrote and the remote the codes were captured through, so the name is the only
+remaining input, and it is derived from the manufacturer and model entered
+earlier. Press **Create the entity**. No `configuration.yaml`, no restart.
 
-What you get is an ordinary config entry, so you can rename it, move it to an
-area, or point it at a different remote from **Settings → Devices & services →
+The result is an ordinary config entry, so it can be renamed, assigned to an
+area, or pointed at a different remote from **Settings → Devices & services →
 HubIR**.
 
-If you keep your entities in YAML instead, the block to paste is still there,
-folded under *Or write it into configuration.yaml yourself*. That route needs a
-restart — and do not use both for one device, or you will get two entities
-fighting over the same remote.
+For entities kept in YAML, the block to paste is under *Configure in
+configuration.yaml instead*. That route requires a restart. Do not use both for
+one device, or two entities will contend for the same remote.
 
 ## Saving a draft
 
-An air conditioner is around 120 codes even after you have declared which modes
-ignore what. That is not one sitting, and until you press *Save as device code*
-the whole session lives in the browser tab — so a reload, a crash, or a phone
-going flat took it with it.
+An air conditioner is around 120 codes even after mode dependencies are declared.
+Until *Save as device code* is pressed, the entire session exists only in the
+browser tab, where a reload or a crash discards it.
 
-**Save draft** parks the session on your Home Assistant. It keeps everything the
-panel cannot work out again: the settings, every code captured so far, which
-targets you deliberately skipped, and the one you were standing on. The button
-is on the capture screen and next to *Build the list of codes*, so the
-declaration work is worth keeping on its own.
+**Save draft** stores the session on the server. It retains everything the panel
+cannot recompute: the settings, every code captured so far, the positions
+skipped, and the current position. The button is on the capture screen and next
+to *Build the list of codes*, so the declaration work can be kept on its own.
 
-Unfinished drafts are listed at the top of the first screen with what is left to
-do and when you last touched them. **Carry on** restores the session and drops
-you back at the code you stopped at.
+Drafts are listed at the top of the first screen with the work outstanding and
+the time they were last modified. **Resume** restores the session at the position
+where it stopped.
 
-Three things worth knowing:
+Three points:
 
-- Drafts live in `.storage/hub_ir.drafts`, on the server. They are not in the
-  browser, so you can declare an air conditioner on a laptop, capture half of it
-  from a phone standing next to the unit, and finish it back at the desk.
-- The list of codes is **not** stored. Carrying on asks the server to work it out
-  from the settings again, which is how a draft written by an older version can
-  never bring back a plan this one disagrees with. If you edit the settings
-  before carrying on, the codes you already have are matched against the new
-  plan and only the genuinely new targets are left to capture.
-- Saving the device file clears the draft. The file supersedes it, and reopening
-  it later is what the template box on screen 2 is for.
+- Drafts are held in `.storage/hub_ir.drafts`, on the server rather than in the
+  browser. A unit can be declared on a laptop, captured from a phone beside the
+  unit, and finished at the desk.
+- The list of codes is **not** stored. Resuming asks the server to derive it from
+  the settings again, so a draft written by an older version cannot restore a
+  plan the current version disagrees with. If the settings are edited before
+  resuming, the codes already captured are matched against the new plan and only
+  genuinely new targets remain.
+- Saving the device file discards the draft. The file supersedes it, and step 2
+  reopens it to add further codes.
 
-There is a ceiling of 20 drafts. Saving over one you already have is always
-allowed, so the limit only ever stops a twenty-first *new* recording.
+The limit is 20 drafts. Saving over an existing draft is always permitted, so the
+limit only blocks a twenty-first *new* recording.
 
-## Teaching more codes to a device you have already added
+## Adding codes to a device already configured
 
-Reopen its device file, capture the codes you skipped, and save to the same
-device code. Press **Create the entity** again: the panel notices the entity
-already exists, reloads it onto the file you just saved, and says so. The new
-codes work immediately.
+Reopen its device file, capture the codes that were skipped, and save to the same
+device code. Press **Create the entity** again: the panel detects the existing
+entity, reloads it onto the file just saved, and reports this. The new codes take
+effect immediately.
 
-Without that reload the running entity would keep the device file it parsed when
-it was set up, and the codes you just learned would do nothing until a restart.
+Without that reload the running entity would retain the device file it parsed at
+setup, and the new codes would do nothing until a restart.
 
 ## The other device types
 
 Fans, lights and media players have flat command lists rather than a tree, so
-their wizard is a single screen: tick what the device has, then capture each
+their sequence is a single screen: declare what the device has, then capture each
 button once.
 
 | Type | What it asks for |
 | ---- | ---------------- |
 | Fan | speeds slowest first, whether it reverses, whether it oscillates |
-| Light | brightness steps, colour temperatures in Kelvin, whether it has a night light |
+| Light | brightness steps, colour temperatures in kelvin, whether it has a night light |
 | Media player | which buttons exist, and the list of sources or channels |
 | Switch or socket | whether the remote has separate on and off keys, or a single power key that toggles |
 
-A switch is an amplifier, a projector, a bathroom heat lamp — anything only ever
-on or off. **No switch device files are shipped**, so the panel is the only way to
-get one. If the remote has a single power key whose code just alternates, tick
-*One power button that toggles*; the entity then keeps track of which way round it
-is, because sending that code when the device already matches would do the
-opposite of what you asked. See [SWITCH.md](SWITCH.md).
+A switch covers anything with only on and off states: an amplifier, a projector,
+a heat lamp. **No switch device files are shipped**, so the panel is the only way
+to produce one. If the remote has a single power key whose code alternates, select
+*One power button that toggles*. The entity then tracks which state it is in,
+because sending that code when the device already matches would invert the
+requested state. See [SWITCH.md](SWITCH.md).
 
 ## One-touch buttons (Turbo, Eco, Sleep)
 
-Worth reading before you record these, because getting it wrong is silent.
+Read this before recording them: an incorrect recording fails silently.
 
-On most air conditioners Turbo does **not** send a small "turbo on" packet. It
-sends the unit's whole state — mode, fan speed, temperature — with one extra bit
-flipped. So the code you record will always put the unit back into whichever
-state the remote was showing when you pressed it. Record Turbo while the remote
-happens to be on 30°C and every Turbo from Home Assistant afterwards drags the
-room to 30°C.
+On most air conditioners Turbo does **not** send a discrete "turbo on" packet. It
+transmits the unit's entire state — mode, fan speed, temperature — with one
+additional bit set. The recorded code therefore returns the unit to whichever
+state the remote was displaying at the time of recording. Record Turbo while the
+remote shows 30°C, and every subsequent Turbo from Home Assistant drives the room
+to 30°C.
 
-So the panel asks you to pick that state **once**: a mode, a fan speed and a
-temperature. It then shows the same state on every preset's capture screen, and
-writes it into the device file as `presetBaseline`, so the entity can report what
-the code actually commanded instead of leaving Home Assistant showing a
-temperature the unit is not on.
+The panel therefore requires that state to be declared **once**: a mode, a fan
+speed and a temperature. It then displays the same state on every preset capture
+screen and writes it into the device file as `presetBaseline`, so the entity can
+report what the code actually commanded rather than leaving Home Assistant
+showing a temperature the unit is not set to.
 
-Two or three extra presses of the remote, and the whole group is done — presets
-are a flat list, not another dimension of the matrix.
+Presets are a flat list rather than another dimension of the matrix, so the whole
+group costs two or three additional presses.
 
-There is no "turbo off" code, because remotes do not have one. Selecting `none`,
-or changing the mode, fan speed, swing or temperature, re-sends the ordinary
-state frame, and that is what clears the preset. See
+There is no "turbo off" code, because remotes do not provide one. Selecting
+`none`, or changing the mode, fan speed, swing or temperature, re-sends the
+ordinary state frame, which clears the preset. See
 [CLIMATE.md](CLIMATE.md#one-touch-buttons-turbo-eco-sleep-quiet).
 
-## Replacing a file you already recorded
+## Replacing a file already recorded
 
-The device code is filled in with the first free one in your range. If you point
-it at a code you have already used, the panel says so and **Save** stays disabled
-until you tick *Replace the existing file*. The server refuses too, so a second
-browser tab cannot slip past the warning.
+The device code is filled in with the first free code in the local range. If it
+is pointed at a code already in use, the panel reports this and **Save** stays
+disabled until *Replace the existing file* is selected. The server enforces the
+same rule, so a second browser tab cannot bypass the warning.
 
 Codes below 90000 belong to the shipped database and cannot be written at all.
 
-## The lists you build by hand
+## The lists built by hand
 
 Fan speeds, swing positions, a fan's speeds, brightness steps, colour
-temperatures, sources, models: each is built one entry at a time. Type it and
-press **Add** or Enter, or click one of the grey suggestion chips underneath. A
-list that is still empty offers a one-click starting point — *Use auto · low ·
-mid · high* — so nobody has to invent names for something that conventional.
+temperatures, sources and models are each built one entry at a time. Type an
+entry and press **Add** or Enter, or select one of the suggestion chips beneath.
+An empty list offers a one-click starting point, such as *Use auto · low · mid ·
+high*.
 
 Each entry has three controls: **↑** and **↓** to move it, **✕** to remove it.
 
-The arrows are not decoration. **Fan speeds and a fan's speeds are matched
-against the codes you capture by position, not by name** — the first speed in
-your list gets the first code, and so on. Getting them out of order gives you a
-unit that runs on high when Home Assistant asks for low, and nothing will warn
-you. That is why the list is numbered and why the order can be changed.
+The arrows are functional. **Fan speeds and a fan's speeds are matched against
+the captured codes by position, not by name**: the first speed in the list takes
+the first code, and so on. An incorrect order produces a unit that runs on high
+when Home Assistant requests low, with no warning. This is why the list is
+numbered and reorderable.
 
-Entries are refused, out loud, when they would cause trouble later:
+Entries are rejected when they would cause problems later:
 
-| Refused | Why |
-| ------- | --- |
+| Rejected | Reason |
+| -------- | ------ |
 | a duplicate, ignoring case | `High` and `high` would be two separate keys in the command tree |
-| a name containing `/` | that character separates the levels of a command path, so it would split the key in two |
-| a name containing `,` | commas are no longer how lists are typed |
-| anything but a number, for brightness and colour temperature | the integration compares these numerically |
-| nothing at all | — |
+| a name containing `/` | that character separates the levels of a command path and would split the key |
+| a name containing `,` | commas are not how lists are entered |
+| a non-number, for brightness and colour temperature | the integration compares these numerically |
+| an empty value | — |
 
-## Sending a recording upstream
+## Contributing a recording
 
-A device file only helps the next person if it leaves your machine, so the saved
-screen offers three things, in this order:
+A device file is only useful to others if it leaves the machine, so the saved
+screen offers three actions, in this order:
 
-1. **Copy JSON** and **Download `<code>.json`**, with the file's real size next to
-   them.
-2. **Open a pre-filled issue** — a link to a new GitHub issue with the make, the
-   models, the code count, your Home Assistant and HubIR versions and any
+1. **Copy JSON** and **Download `<code>.json`**, with the file's size alongside.
+2. **Open a pre-filled issue**, a link to a new GitHub issue with the
+   manufacturer, models, code count, Home Assistant and HubIR versions, and any
    validator warnings already filled in.
-3. **Show the raw JSON**, for when the clipboard is unavailable.
+3. **Show raw JSON**, for when the clipboard is unavailable.
 
-**The link carries no codes at all.** A three-mode air conditioner comes to about
-23 kB and a URL cannot hold that, so the file travels as an attachment or a
-paste. Putting part of it in the link would be a silent truncation, which is
-worse than asking. Nothing is uploaded until you press the button on GitHub.
+**The link carries no codes.** A three-mode air conditioner is about 23 kB, which
+a URL cannot hold, so the file travels as an attachment or a paste. Including
+part of it in the link would truncate it silently. Nothing is submitted until the
+button on GitHub is pressed.
 
-## Keeping your own recordings
+## Retaining local recordings
 
-**Download the files you record before you reinstall.** HACS installs only
+**Download recorded files before reinstalling.** HACS installs only
 `custom_components/hub_ir/`, so the repository-root `codes/` directory is not
-shipped and a file you recorded does not exist upstream to be fetched again.
+shipped and a locally recorded file does not exist upstream to be downloaded
+again.
 
-Each of your recordings on the *Identify it* step has a **⭳** beside it, so
-saving all of them takes one click each from a screen you already visit. Drop the
-JSON back into `custom_components/hub_ir/codes/<platform>/` afterwards and it is
-picked up as it was.
+Each local recording on the *Identification* step has a **⭳** beside it. Return
+the JSON to `custom_components/hub_ir/codes/<platform>/` afterwards and it is
+picked up unchanged.
 
-There is deliberately no upload button: an endpoint that writes arbitrary JSON
-into the configuration directory is real attack surface, and dropping the file
-back in place then pressing *Load that device file* already does the job.
+There is deliberately no upload control: an endpoint that writes arbitrary JSON
+into the configuration directory is attack surface, and replacing the file and
+pressing *Load device file* achieves the same result.
 
-## Where the files go
+## Reusing an existing device file
 
-`custom_components/hub_ir/codes/<platform>/<device_code>.json` — the same
+Any existing device code can be loaded on the *Identification* step, including
+the 407 shipped ones. Its settings and every code it holds are carried over, and
+only the gaps remain to capture.
+
+Saving can only write to 90000 and above, so the originals are never modified.
+This is also how to handle the few upstream codes that were captured incorrectly:
+re-record them into a local file.
+
+## Where the files are written
+
+`custom_components/hub_ir/codes/<platform>/<device_code>.json`, the same
 directory the integration downloads shipped device files into, and one HACS
 preserves across updates through `persistent_directory`.
 
-Opening an existing device file is fine, including any of the 407 shipped ones:
-use it as a starting point and save it under your own code. Saving can only ever
-write to 90000 and above, so the originals stay as they are. That is also how to
-deal with the handful of upstream codes that were captured badly — re-learn them
-into a file of your own.
+## Troubleshooting
 
-## When something goes wrong
-
-| What you see | What it means |
-| ------------ | ------------- |
-| *No infrared code arrived within 30 seconds* | The Broadlink heard nothing. Hold the remote closer, point it straight at the device, and press once rather than holding. |
+| Message | Meaning |
+| ------- | ------- |
+| *No infrared code was received within 30 seconds* | The Broadlink received nothing. Move the remote closer, point it directly at the device, and press once rather than holding. |
 | *The remote entity … is turned off* | Turn the remote entity on; Broadlink cannot learn while it is off. |
 | *… is unavailable* | The Broadlink is unreachable. Check power and network. |
 | *… needs a Broadlink remote* | The selected remote belongs to another integration, whose codes this cannot read. |
-| No panel in the sidebar | Nothing has loaded the integration yet — add it from Settings → Devices & services → Add integration — or you are not an administrator. |
-| *There is already a HubIR entity for this device code and remote* | You added this device before. The existing entity was reloaded onto the file you just saved; there is nothing else to do. |
-| *This version of HubIR cannot add entities from the panel* | The installed version has no config flow. Update through HACS, or use the `configuration.yaml` block folded under the create button. |
+| No panel in the sidebar | Nothing has loaded the integration yet — add it from Settings → Devices & services → Add integration — or the account is not an administrator. |
+| *A HubIR entity already exists for this device code and remote* | The device was added previously. The existing entity was reloaded onto the file just saved; no further action is required. |
+| *This version of HubIR cannot add entities from the panel* | The installed version has no config flow. Update through HACS, or use the `configuration.yaml` block under the create button. |
 
-## What it does not do
+## Out of scope
 
-Learning **RF** devices — curtains, some ceiling fans — is a different flow that
-sweeps for the frequency first, and is not part of the panel. Use
-`remote.learn_command` with `command_type: rf` by hand for those.
+Learning **RF** devices, such as curtains and some ceiling fans, requires a
+different flow that sweeps for the frequency first, and is not part of the panel.
+Use `remote.learn_command` with `command_type: rf` directly for those.

@@ -371,7 +371,7 @@ class HubIRLight(HubIRCommandMixin, LightEntity, RestoreEntity):
         if not is_recorded(self._commands.get(cmd)):
             raise HomeAssistantError(
                 f"Device code {self._device_code} has no code recorded for "
-                f"'{cmd}', so that cannot be controlled from Home Assistant"
+                f"'{cmd}'; it cannot be controlled"
             )
         _LOGGER.debug("Sending %s remote command %s times", cmd, count)
         remote_cmd = self._commands.get(cmd)

@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "What kind of device is it?",
-        "description": "Each HubIR entity is one device in front of one Broadlink remote. Add another for every device you want to control.",
+        "title": "Device type",
+        "description": "A HubIR entity represents one device controlled by one Broadlink remote. Add one entity per device.",
         "menu_options": {
           "climate": "Air conditioner",
           "fan": "Fan",
@@ -14,7 +14,7 @@
       },
       "climate": {
         "title": "Add an air conditioner",
-        "description": "The device code names the file of IR codes to use. Find one in the tables in the documentation, or record your own with the HubIR panel in the sidebar.",
+        "description": "The device code identifies the file of IR codes to use. Device codes are listed in the documentation. To record a new device, use the HubIR panel in the sidebar.",
         "data": {
           "name": "Name",
           "device_code": "Device code",
@@ -29,20 +29,20 @@
           "reassert_interval": "Re-send the current state every N minutes (0 = never)"
         },
         "data_description": {
-          "device_code": "A number such as 1020. Codes from 90000 up are the ones you recorded yourself.",
+          "device_code": "A number such as 1020. Codes from 90000 upward are locally recorded.",
           "controller_data": "The remote entity that transmits the codes.",
-          "delay": "How long to wait between the codes of a multi-code command.",
-          "temperature_unit": "Leave empty to read it from the device file, which is right for almost every device.",
-          "temperature_sensor": "Optional. Reports the real room temperature, which infrared cannot.",
+          "delay": "Time to wait between the codes of a multi-code command.",
+          "temperature_unit": "Leave empty to take it from the device file. This is correct for almost all devices.",
+          "temperature_sensor": "Optional. Reports the actual room temperature, which infrared cannot.",
           "humidity_sensor": "Optional.",
-          "power_sensor": "Optional. Tells the entity whether the device is really on.",
-          "power_sensor_reassert": "Only acts when the sensor says off while Home Assistant thinks the unit is running — a dropped IR frame. It never switches the unit off, because a sensor saying on almost always means somebody picked up the real remote. Waits a minute after any command, and gives up after three tries. Needs a sensor that reports more often than once a minute.",
-          "reassert_interval": "For a unit that forgets its setpoint after a power blip. Sends nothing while the entity is off."
+          "power_sensor": "Optional. Reports whether the device is actually on.",
+          "power_sensor_reassert": "Acts only when the sensor reports off while Home Assistant considers the unit running, which indicates a dropped IR frame. It never switches the unit off: a sensor reporting on usually means the physical remote was used. Waits one minute after any command and stops after three attempts. Requires a sensor that reports more than once per minute.",
+          "reassert_interval": "For units that lose their setpoint after a power interruption. Nothing is sent while the entity is off."
         }
       },
       "fan": {
         "title": "Add a fan",
-        "description": "The device code names the file of IR codes to use. Find one in the tables in the documentation, or record your own with the HubIR panel in the sidebar.",
+        "description": "The device code identifies the file of IR codes to use. Device codes are listed in the documentation. To record a new device, use the HubIR panel in the sidebar.",
         "data": {
           "name": "Name",
           "device_code": "Device code",
@@ -51,15 +51,15 @@
           "power_sensor": "Power sensor"
         },
         "data_description": {
-          "device_code": "A number such as 1000. Codes from 90000 up are the ones you recorded yourself.",
+          "device_code": "A number such as 1000. Codes from 90000 upward are locally recorded.",
           "controller_data": "The remote entity that transmits the codes.",
-          "delay": "How long to wait between the codes of a multi-code command.",
-          "power_sensor": "Optional. Tells the entity whether the device is really on."
+          "delay": "Time to wait between the codes of a multi-code command.",
+          "power_sensor": "Optional. Reports whether the device is actually on."
         }
       },
       "light": {
         "title": "Add a light",
-        "description": "The device code names the file of IR codes to use. Find one in the tables in the documentation, or record your own with the HubIR panel in the sidebar.",
+        "description": "The device code identifies the file of IR codes to use. Device codes are listed in the documentation. To record a new device, use the HubIR panel in the sidebar.",
         "data": {
           "name": "Name",
           "device_code": "Device code",
@@ -68,15 +68,15 @@
           "power_sensor": "Power sensor"
         },
         "data_description": {
-          "device_code": "A number such as 1000. Codes from 90000 up are the ones you recorded yourself.",
+          "device_code": "A number such as 1000. Codes from 90000 upward are locally recorded.",
           "controller_data": "The remote entity that transmits the codes.",
-          "delay": "How long to wait between the codes of a multi-code command.",
-          "power_sensor": "Optional. Tells the entity whether the device is really on."
+          "delay": "Time to wait between the codes of a multi-code command.",
+          "power_sensor": "Optional. Reports whether the device is actually on."
         }
       },
       "media_player": {
         "title": "Add a TV or media player",
-        "description": "The device code names the file of IR codes to use. Find one in the tables in the documentation, or record your own with the HubIR panel in the sidebar.",
+        "description": "The device code identifies the file of IR codes to use. Device codes are listed in the documentation. To record a new device, use the HubIR panel in the sidebar.",
         "data": {
           "name": "Name",
           "device_code": "Device code",
@@ -86,16 +86,16 @@
           "device_class": "Device class"
         },
         "data_description": {
-          "device_code": "A number such as 1000. Codes from 90000 up are the ones you recorded yourself.",
+          "device_code": "A number such as 1000. Codes from 90000 upward are locally recorded.",
           "controller_data": "The remote entity that transmits the codes.",
-          "delay": "How long to wait between the codes of a multi-code command.",
-          "power_sensor": "Optional. Tells the entity whether the device is really on.",
-          "device_class": "Renaming sources is available under Configure once the entity exists."
+          "delay": "Time to wait between the codes of a multi-code command.",
+          "power_sensor": "Optional. Reports whether the device is actually on.",
+          "device_class": "Source names can be changed under Configure once the entity exists."
         }
       },
       "switch": {
         "title": "Add a switch",
-        "description": "For an IR device that is only ever on or off: an amplifier, a projector, a bathroom heat lamp. The device code names the file of IR codes to use. There are no shipped switch codes yet, so record your own with the HubIR panel in the sidebar.",
+        "description": "For an IR device with only on and off states, such as an amplifier, a projector or a heat lamp. The device code identifies the file of IR codes to use. No switch codes are shipped; record the device with the HubIR panel in the sidebar.",
         "data": {
           "name": "Name",
           "device_code": "Device code",
@@ -104,41 +104,41 @@
           "power_sensor": "Power sensor"
         },
         "data_description": {
-          "device_code": "A number such as 90000. Codes from 90000 up are the ones you recorded yourself.",
+          "device_code": "A number such as 90000. Codes from 90000 upward are locally recorded.",
           "controller_data": "The remote entity that transmits the codes.",
-          "delay": "How long to wait between the codes of a multi-code command.",
-          "power_sensor": "Optional. Tells the entity whether the device is really on, which matters most for a remote with a single power button."
+          "delay": "Time to wait between the codes of a multi-code command.",
+          "power_sensor": "Optional. Reports whether the device is actually on. Recommended for a remote with a single power button."
         }
       }
     },
     "error": {
-      "cannot_load_device_file": "That device file could not be read or downloaded. Check the device code and your internet connection, then try again.",
-      "invalid_device_file": "That device file exists but cannot produce a working entity.",
-      "unsupported_controller": "That device file was recorded for a different kind of hub. This integration only sends through Broadlink.",
-      "unsupported_encoding": "That device file stores its codes in an encoding this integration cannot send.",
-      "no_operation_modes": "That device file lists no operation mode Home Assistant recognises.",
-      "no_fan_speeds": "That device file lists no fan speeds.",
-      "remote_not_found": "That remote entity does not exist.",
+      "cannot_load_device_file": "The device file could not be read or downloaded. Check the device code and the network connection, then try again.",
+      "invalid_device_file": "The device file exists but cannot produce a working entity.",
+      "unsupported_controller": "The device file was recorded for a different hub. This integration transmits through Broadlink only.",
+      "unsupported_encoding": "The device file stores its codes in an encoding this integration cannot transmit.",
+      "no_operation_modes": "The device file lists no operation mode Home Assistant recognises.",
+      "no_fan_speeds": "The device file lists no fan speeds.",
+      "remote_not_found": "The remote entity does not exist.",
       "already_configured": "Another HubIR entity already uses this device code on that remote.",
-      "no_switch_commands": "That device file records no on, off or toggle code."
+      "no_switch_commands": "The device file records no on, off or toggle code."
     },
     "abort": {
-      "already_configured": "This device code is already set up on that remote.",
-      "cannot_load_device_file": "That device file could not be read or downloaded.",
-      "invalid_device_file": "That device file cannot produce a working entity.",
-      "unsupported_controller": "That device file was recorded for a different kind of hub.",
-      "unsupported_encoding": "That device file stores its codes in an encoding this integration cannot send.",
-      "no_operation_modes": "That device file lists no operation mode Home Assistant recognises.",
-      "no_fan_speeds": "That device file lists no fan speeds.",
-      "remote_not_found": "That remote entity does not exist.",
-      "no_switch_commands": "That device file records no on, off or toggle code."
+      "already_configured": "This device code is already configured on that remote.",
+      "cannot_load_device_file": "The device file could not be read or downloaded.",
+      "invalid_device_file": "The device file cannot produce a working entity.",
+      "unsupported_controller": "The device file was recorded for a different hub.",
+      "unsupported_encoding": "The device file stores its codes in an encoding this integration cannot transmit.",
+      "no_operation_modes": "The device file lists no operation mode Home Assistant recognises.",
+      "no_fan_speeds": "The device file lists no fan speeds.",
+      "remote_not_found": "The remote entity does not exist.",
+      "no_switch_commands": "The device file records no on, off or toggle code."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Change this device's settings",
-        "description": "Saving reloads the entity, so the changes take effect straight away. The device code and the kind of device are fixed; add another entity to use a different device file.",
+        "title": "Device settings",
+        "description": "Saving reloads the entity, so changes take effect immediately. The device code and the device type are fixed; add another entity to use a different device file.",
         "data": {
           "controller_data": "Broadlink remote",
           "delay": "Delay between commands (seconds)",
@@ -154,24 +154,24 @@
         },
         "data_description": {
           "controller_data": "The remote entity that transmits the codes.",
-          "delay": "How long to wait between the codes of a multi-code command.",
-          "temperature_unit": "Leave empty to read it from the device file.",
+          "delay": "Time to wait between the codes of a multi-code command.",
+          "temperature_unit": "Leave empty to take it from the device file.",
           "source_names": "Rename the sources the device file provides, for example HDMI1: DVD player. Set a source to null to hide it.",
-          "power_sensor_reassert": "Only acts when the sensor says off while Home Assistant thinks the unit is running — a dropped IR frame. It never switches the unit off, because a sensor saying on almost always means somebody picked up the real remote. Waits a minute after any command, and gives up after three tries. Needs a sensor that reports more often than once a minute.",
-          "reassert_interval": "For a unit that forgets its setpoint after a power blip. Sends nothing while the entity is off."
+          "power_sensor_reassert": "Acts only when the sensor reports off while Home Assistant considers the unit running, which indicates a dropped IR frame. It never switches the unit off: a sensor reporting on usually means the physical remote was used. Waits one minute after any command and stops after three attempts. Requires a sensor that reports more than once per minute.",
+          "reassert_interval": "For units that lose their setpoint after a power interruption. Nothing is sent while the entity is off."
         }
       }
     },
     "error": {
-      "cannot_load_device_file": "That device file could not be read or downloaded.",
-      "invalid_device_file": "That device file cannot produce a working entity.",
-      "unsupported_controller": "That device file was recorded for a different kind of hub.",
-      "unsupported_encoding": "That device file stores its codes in an encoding this integration cannot send.",
-      "no_operation_modes": "That device file lists no operation mode Home Assistant recognises.",
-      "no_fan_speeds": "That device file lists no fan speeds.",
-      "remote_not_found": "That remote entity does not exist.",
+      "cannot_load_device_file": "The device file could not be read or downloaded.",
+      "invalid_device_file": "The device file cannot produce a working entity.",
+      "unsupported_controller": "The device file was recorded for a different hub.",
+      "unsupported_encoding": "The device file stores its codes in an encoding this integration cannot transmit.",
+      "no_operation_modes": "The device file lists no operation mode Home Assistant recognises.",
+      "no_fan_speeds": "The device file lists no fan speeds.",
+      "remote_not_found": "The remote entity does not exist.",
       "already_configured": "Another HubIR entity already uses this device code on that remote.",
-      "no_switch_commands": "That device file records no on, off or toggle code."
+      "no_switch_commands": "The device file records no on, off or toggle code."
     }
   },
   "selector": {
@@ -186,7 +186,7 @@
   "services": {
     "send_command": {
       "name": "Send command",
-      "description": "Send a code from a HubIR entity's own device file, named by its path. For the buttons the entity does not model: a menu key, an arrow, an LED toggle. Does not change the entity's state.",
+      "description": "Transmit a code from a HubIR entity's device file, identified by its command path. Intended for buttons the entity does not model, such as a menu key, an arrow or an LED toggle. Does not change the entity's state.",
       "fields": {
         "command": {
           "name": "Command",
@@ -194,7 +194,7 @@
         },
         "repeat": {
           "name": "Repeat",
-          "description": "How many times to send the code. Useful for a volume ramp."
+          "description": "Number of times to transmit the code, for example to step the volume."
         },
         "delay": {
           "name": "Delay",
@@ -204,7 +204,7 @@
     },
     "send_code": {
       "name": "Send code",
-      "description": "Send a raw code through a Broadlink remote, without a HubIR entity. For a code that is not in a device file yet.",
+      "description": "Transmit a raw code through a Broadlink remote without a HubIR entity, for codes not yet held in a device file.",
       "fields": {
         "remote_entity_id": {
           "name": "Remote",
@@ -212,11 +212,11 @@
         },
         "code": {
           "name": "Code",
-          "description": "One code, or a list of codes to send in turn. A list is how a two-packet toggle button is stored."
+          "description": "One code, or a list of codes to transmit in turn. A list is how a two-packet toggle button is stored."
         },
         "encoding": {
           "name": "Encoding",
-          "description": "How the code is written. Base64 is what the panel records."
+          "description": "The encoding of the code. The panel records Base64."
         },
         "delay": {
           "name": "Delay",

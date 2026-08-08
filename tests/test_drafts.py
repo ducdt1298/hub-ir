@@ -328,7 +328,7 @@ async def test_the_number_of_drafts_is_capped(
 
     assert not answer["success"]
     assert answer["error"]["code"] == "draft_rejected"
-    assert "delete one" in answer["error"]["message"]
+    assert "Delete one" in answer["error"]["message"]
 
 
 async def test_an_existing_draft_can_still_be_saved_at_the_cap(

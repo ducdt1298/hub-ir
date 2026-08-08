@@ -720,8 +720,7 @@ class HubIRClimate(HubIRCommandMixin, ClimateEntity, RestoreEntity):
                 if not is_recorded(off_command):
                     raise HomeAssistantError(
                         f"Device code {self._device_code} has no 'off' code "
-                        "recorded, so this device cannot be turned off through "
-                        "Home Assistant"
+                        "recorded; this device cannot be turned off"
                     )
                 await self._controller.send(off_command)
                 return

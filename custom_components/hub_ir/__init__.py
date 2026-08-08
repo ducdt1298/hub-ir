@@ -50,7 +50,7 @@ from .device_file import has_any_code, is_recorded  # noqa: F401
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "hub_ir"
-VERSION = "3.6.0"
+VERSION = "3.7.0"
 
 COMPONENT_ABS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -345,9 +345,9 @@ class Helper:
         # does nothing, so refuse it here instead.
         if not has_any_code(device_data.get("commands")):
             raise HomeAssistantError(
-                f"The device file for {platform} code {device_code} has no codes "
-                "recorded at all, so it cannot control anything. Pick another "
-                "device code or record your own"
+                f"The device file for {platform} code {device_code} contains no "
+                "codes and cannot control anything. Choose another device code, "
+                "or record the device with the HubIR panel"
             )
 
         return device_data
@@ -360,9 +360,9 @@ class Helper:
             async with session.get(source) as response:
                 if response.status != HTTPStatus.OK:
                     raise HomeAssistantError(
-                        f"Got HTTP {response.status} downloading {source}. Check "
-                        "that the device code exists, or place the file manually "
-                        "in the codes directory"
+                        f"HTTP {response.status} downloading {source}. Verify that "
+                        "the device code exists, or place the file in the codes "
+                        "directory manually"
                     )
                 payload = await response.read()
         except HomeAssistantError:

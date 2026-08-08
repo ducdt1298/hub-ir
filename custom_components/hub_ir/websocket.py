@@ -621,8 +621,8 @@ async def ws_create_entity(
     connection.send_error(
         msg["id"],
         "create_failed",
-        "The HubIR config flow asked for more than the panel can answer. Add "
-        "the device from Settings instead",
+        "The config flow requires input the panel cannot provide. Add the device "
+        "from Settings instead",
     )
 
 
@@ -631,24 +631,21 @@ async def ws_create_entity(
 # translated flow result, so they are spelled out again here.
 _ABORT_MESSAGES = {
     "already_configured": (
-        "There is already a HubIR entity for this device code and remote"
+        "A HubIR entity already exists for this device code and remote"
     ),
-    "cannot_load_device_file": (
-        "The device file could not be read back after saving it"
-    ),
+    "cannot_load_device_file": "The device file could not be read back after saving",
     "invalid_device_file": "The saved device file cannot produce a working entity",
-    "unsupported_controller": (
-        "That device file was recorded for a different kind of hub"
-    ),
+    "unsupported_controller": "The device file was recorded for a different hub",
     "unsupported_encoding": (
-        "That device file stores its codes in an encoding this integration cannot send"
+        "The device file stores its codes in an encoding this integration cannot "
+        "transmit"
     ),
     "no_operation_modes": (
-        "That device file lists no operation mode Home Assistant recognises"
+        "The device file lists no operation mode Home Assistant recognises"
     ),
-    "no_fan_speeds": "That device file lists no fan speeds",
-    "no_switch_commands": "That device file records no on, off or toggle code",
-    "remote_not_found": "That remote entity does not exist",
+    "no_fan_speeds": "The device file lists no fan speeds",
+    "no_switch_commands": "The device file records no on, off or toggle code",
+    "remote_not_found": "The remote entity does not exist",
 }
 
 

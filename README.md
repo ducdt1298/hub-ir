@@ -61,6 +61,7 @@ Copy `custom_components/hub_ir` into your configuration directory:
 |       |-- climate.py
 |       |-- config_flow.py
 |       |-- const.py
+|       |-- drafts.py
 |       |-- controller.py
 |       |-- fan.py
 |       |-- light.py
@@ -129,6 +130,13 @@ It can also start from a device file that is nearly right — any of the 407
 shipped ones — carrying over its settings and every code it already holds, so
 only the gaps are captured. Saving always writes to a code of your own, so the
 original is never touched.
+
+A hundred-odd codes is more than one sitting, so **Save draft** parks an
+unfinished recording on the server — settings, codes, skips and the code you
+were on. It waits for you at the top of the first screen, and because it is on
+the server rather than in the browser you can declare the unit on a laptop,
+capture half of it from a phone standing beside it, and finish it back at the
+desk.
 
 When it has saved the file it offers to create the entity there and then, so
 recording a device the tables do not cover never involves a text editor or a

@@ -49,10 +49,28 @@ from .device_file import (
     spec_from_device_file,
     validate,
 )
+from .drafts import (
+    DraftError,
+    async_delete_draft,
+    async_get_draft,
+    async_load_drafts,
+    async_save_draft,
+    draft_key,
+    summarize,
+)
 from .learn import async_learn_ir_code
 from .services import async_send_raw_code
 
 PLATFORM_SELECTOR = vol.In(PLATFORMS)
+
+# A draft is a device file in the making, so it is held to the same rule about
+# which numbers the user may write to as hub_ir/save is.
+CUSTOM_CODE_SELECTOR = vol.All(int, vol.Range(min=CUSTOM_CODE_START))
+
+# A captured code is a string, or a pair of them for a button whose remote
+# alternates between two packets. Accepting only str here would refuse every
+# draft that used the panel's two-packet mode.
+CODE_SELECTOR = vol.Any(str, [str])
 
 
 @callback
@@ -68,6 +86,10 @@ def async_register(hass: HomeAssistant) -> None:
         ws_send,
         ws_export,
         ws_create_entity,
+        ws_draft_list,
+        ws_draft_save,
+        ws_draft_get,
+        ws_draft_delete,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -242,7 +264,7 @@ async def ws_get(
     {
         vol.Required("type"): "hub_ir/save",
         vol.Required("platform"): PLATFORM_SELECTOR,
-        vol.Required("device_code"): vol.All(int, vol.Range(min=CUSTOM_CODE_START)),
+        vol.Required("device_code"): CUSTOM_CODE_SELECTOR,
         vol.Required("spec"): dict,
         vol.Required("codes"): dict,
         vol.Optional("overwrite", default=False): bool,
@@ -336,7 +358,7 @@ async def ws_learn(
     {
         vol.Required("type"): "hub_ir/send",
         vol.Required("remote_entity_id"): str,
-        vol.Required("code"): vol.Any(str, [str]),
+        vol.Required("code"): CODE_SELECTOR,
     }
 )
 @websocket_api.async_response
@@ -633,3 +655,133 @@ _ABORT_MESSAGES = {
 def _abort_message(reason: str) -> str:
     """Return something a person can act on for a flow abort reason."""
     return _ABORT_MESSAGES.get(reason) or f"The entity could not be created: {reason}"
+
+
+# --------------------------------------------------------------------------
+# Drafts: a recording that is not finished yet
+# --------------------------------------------------------------------------
+#
+# None of these validate the spec. A draft is unfinished by definition — half
+# the lists are still empty and the temperature range may not have been set —
+# and refusing to keep it because it is not yet a valid device file would
+# defeat the point. hub_ir/plan and hub_ir/save remain the places that check.
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "hub_ir/draft_list"})
+@websocket_api.async_response
+async def ws_draft_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List every unfinished recording, newest first, without its codes."""
+    drafts = await async_load_drafts(hass)
+    summaries = [summarize(key, draft) for key, draft in drafts.items()]
+    summaries.sort(key=lambda summary: summary["updated"] or "", reverse=True)
+    connection.send_result(msg["id"], {"drafts": summaries})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hub_ir/draft_save",
+        vol.Required("platform"): PLATFORM_SELECTOR,
+        vol.Required("device_code"): CUSTOM_CODE_SELECTOR,
+        vol.Required("spec"): dict,
+        vol.Required("codes"): {str: CODE_SELECTOR},
+        vol.Optional("skipped", default=dict): {str: bool},
+        vol.Optional("index", default=0): vol.All(int, vol.Range(min=0)),
+        vol.Optional("toggle", default=False): bool,
+        vol.Optional("remote_entity_id", default=""): str,
+        vol.Optional("total", default=0): vol.All(int, vol.Range(min=0)),
+    }
+)
+@websocket_api.async_response
+async def ws_draft_save(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Park the current capture session so it can be picked up later.
+
+    Note what is absent: the capture plan. Storing the cells would let a draft
+    written by one version resurrect a list of cells another version no longer
+    agrees with; resuming rebuilds it from the spec instead, through the same
+    hub_ir/plan every fresh recording uses.
+    """
+    draft = {
+        key: msg[key]
+        for key in (
+            "platform",
+            "device_code",
+            "spec",
+            "codes",
+            "skipped",
+            "index",
+            "toggle",
+            "remote_entity_id",
+            "total",
+        )
+    }
+
+    try:
+        stored = await async_save_draft(hass, draft)
+    except DraftError as err:
+        connection.send_error(msg["id"], "draft_rejected", str(err))
+        return
+
+    connection.send_result(
+        msg["id"],
+        {
+            "key": draft_key(msg["platform"], msg["device_code"]),
+            "updated": stored["updated"],
+        },
+    )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hub_ir/draft_get",
+        vol.Required("platform"): PLATFORM_SELECTOR,
+        vol.Required("device_code"): CUSTOM_CODE_SELECTOR,
+    }
+)
+@websocket_api.async_response
+async def ws_draft_get(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return one draft in full, codes and all."""
+    draft = await async_get_draft(hass, msg["platform"], msg["device_code"])
+    if draft is None:
+        connection.send_error(
+            msg["id"],
+            "draft_not_found",
+            f"There is no saved draft for {msg['platform']} device code "
+            f"{msg['device_code']}",
+        )
+        return
+
+    connection.send_result(msg["id"], {"draft": draft})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "hub_ir/draft_delete",
+        vol.Required("platform"): PLATFORM_SELECTOR,
+        vol.Required("device_code"): CUSTOM_CODE_SELECTOR,
+    }
+)
+@websocket_api.async_response
+async def ws_draft_delete(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Throw a draft away. Deleting one that is already gone is not an error."""
+    deleted = await async_delete_draft(hass, msg["platform"], msg["device_code"])
+    connection.send_result(msg["id"], {"deleted": deleted})

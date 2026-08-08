@@ -222,6 +222,33 @@ const EXTRA_PRESETS = {
  */
 const STRINGS = {
   vi: {
+    // Drafts
+    "draft.heading": "Bản ghi còn dở",
+    "draft.intro":
+      "Được giữ trên Home Assistant này chứ không phải trong trình duyệt, nên " +
+      "bạn ghi tiếp được từ máy nào cũng được.",
+    "draft.progress": "{done}/{total} · {percent}%",
+    "draft.notStarted": "mới có thiết lập, chưa ghi mã nào",
+    "button.resumeDraft": "Ghi tiếp",
+    "button.saveDraft": "Lưu nháp",
+    "aria.deleteDraft": "Xoá bản nháp của {label}",
+    "draft.confirmDelete":
+      "Xoá bản nháp của {label}? Những mã trong đó không được lưu ở đâu khác.",
+    "draft.setupNote":
+      "Khai báo một máy điều hoà tự nó đã là việc. Lưu nháp ở đây thì giữ được " +
+      "phần thiết lập, để danh sách mã chỉ phải dựng một lần.",
+    "draft.captureNote":
+      "Một trăm mã thì không ghi hết trong một buổi. <strong>Lưu nháp</strong> " +
+      "giữ nguyên mọi thứ đang có — các mã, các chỗ đã bỏ qua, và cả mã bạn " +
+      "đang đứng — rồi chờ bạn ở màn hình đầu.",
+    "draft.cleared":
+      "Bản nháp đã được dọn — file này thay cho nó, và mở lại được từ ô phía " +
+      "trên bất cứ khi nào bạn muốn ghi thêm mã.",
+    "ok.draftSaved":
+      "Đã lưu nháp. Mở lại từ màn hình đầu bất cứ lúc nào — từ trình duyệt " +
+      "khác cũng được.",
+    "ok.draftResumedSetup":
+      "Đã nạp bản nháp. Xem lại phần thiết lập rồi dựng danh sách mã.",
     // Setup, card 1
     "step.teaching": "Bạn đang dạy thiết bị gì?",
     "label.deviceType": "Loại thiết bị",
@@ -624,6 +651,9 @@ const STYLES = `
   .presets { margin-top: .4rem; }
   .presets .chip { font-size: .8rem; padding: .2rem .5rem; }
   .listerr { margin-top: .4rem; }
+  .draftrow { padding: .5rem 0; align-items: flex-start; }
+  .draftrow + .draftrow { border-top: 1px solid var(--divider-color, #eee); }
+  .draftrow .bar { margin: .35rem 0 0; max-width: 18rem; }
   a.button-link {
     display: inline-block; text-decoration: none; font: inherit;
     padding: .5rem .9rem; border-radius: 6px;
@@ -676,6 +706,14 @@ class BroadlinkIrPanel extends HTMLElement {
       export: null,
       showRaw: false,
       copied: false,
+      // Unfinished recordings parked on the server. `drafts` holds the summary
+      // rows the setup screen lists; `draftKey` is which of them this session
+      // is, so that changing the device code moves the draft rather than
+      // leaving the old one behind as an orphan.
+      drafts: [],
+      draftKey: null,
+      draftBusy: false,
+      draftCleared: false,
     };
   }
 
@@ -745,6 +783,7 @@ class BroadlinkIrPanel extends HTMLElement {
       this._state.status = { kind: "error", text: this._describe(err) };
     }
     await this._refreshCustomCodes();
+    await this._refreshDrafts();
     this._render();
   }
 
@@ -758,6 +797,22 @@ class BroadlinkIrPanel extends HTMLElement {
       this._state.customCodes = custom;
     } catch {
       this._state.customCodes = [];
+    }
+  }
+
+  /**
+   * List the unfinished recordings, across every platform.
+   *
+   * Not filtered by the platform currently selected: somebody who left an air
+   * conditioner half-learned and comes back to the panel should see it whatever
+   * the dropdown happens to be showing, because finding it is the whole point.
+   */
+  async _refreshDrafts() {
+    try {
+      const { drafts } = await this._call({ type: "hub_ir/draft_list" });
+      this._state.drafts = drafts;
+    } catch {
+      this._state.drafts = [];
     }
   }
 
@@ -1001,6 +1056,16 @@ class BroadlinkIrPanel extends HTMLElement {
         exported = null;
       }
 
+      // The file on disk supersedes the draft, and it reopens through the
+      // template loader, so tidying the draft away loses nothing. Doing it
+      // here rather than leaving it to the user is what keeps the list on the
+      // first screen a list of work still outstanding.
+      const cleared = Boolean(this._state.draftKey);
+      if (cleared) {
+        await this._dropDraft(this._state.draftKey);
+        await this._refreshDrafts();
+      }
+
       this._set({
         step: "saved",
         saved: result,
@@ -1008,6 +1073,8 @@ class BroadlinkIrPanel extends HTMLElement {
         showRaw: false,
         copied: false,
         status: null,
+        draftKey: null,
+        draftCleared: cleared,
         entityName: defaultName(
           this._state.spec,
           this._state.platform,
@@ -1030,6 +1097,188 @@ class BroadlinkIrPanel extends HTMLElement {
           : this._describe(err);
       this._set({ status: { kind: "error", text } });
     }
+  }
+
+  // -- drafts --------------------------------------------------------------
+
+  /** The key a draft is filed under, matching drafts.py::draft_key. */
+  _draftKey() {
+    return `${this._state.platform}/${this._state.deviceCode}`;
+  }
+
+  /**
+   * Park the current session on the server.
+   *
+   * An air conditioner is a hundred-odd codes and nobody records that in one
+   * evening. Everything the panel cannot recompute goes up: the spec, the codes
+   * so far, the skip marks, the cursor. The plan does not — resuming asks the
+   * server to build it again, so a draft can never bring back a stale one.
+   */
+  async _saveDraft() {
+    const s = this._state;
+    if (s.draftBusy) return;
+
+    const previous = s.draftKey;
+    const key = this._draftKey();
+    this._set({ draftBusy: true, status: null });
+
+    try {
+      await this._call({
+        type: "hub_ir/draft_save",
+        platform: s.platform,
+        device_code: s.deviceCode,
+        spec: this._specForServer(),
+        codes: s.codes,
+        skipped: s.skipped,
+        index: s.index,
+        toggle: s.toggle,
+        remote_entity_id: s.remote,
+        total: s.cells.length,
+      });
+    } catch (err) {
+      this._set({
+        draftBusy: false,
+        status: { kind: "error", text: this._describe(err) },
+      });
+      return;
+    }
+
+    // The device code is half the key, so changing it part way through would
+    // otherwise leave the earlier draft behind with nothing pointing at it.
+    if (previous && previous !== key) await this._dropDraft(previous);
+
+    this._state.draftKey = key;
+    await this._refreshDrafts();
+    this._set({
+      draftBusy: false,
+      status: {
+        kind: "ok",
+        text: this._t(
+          "ok.draftSaved",
+          "Draft saved. Pick it up from the first screen whenever you like — " +
+            "from another browser too."
+        ),
+      },
+    });
+  }
+
+  /** Delete one draft by key, quietly. */
+  async _dropDraft(key) {
+    const [platform, code] = String(key).split("/");
+    try {
+      const { deleted } = await this._call({
+        type: "hub_ir/draft_delete",
+        platform,
+        device_code: Number(code),
+      });
+      return deleted;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Load a draft back and carry on from exactly where it stopped. */
+  async _resumeDraft(key) {
+    const [platform, code] = String(key).split("/");
+
+    let draft;
+    try {
+      ({ draft } = await this._call({
+        type: "hub_ir/draft_get",
+        platform,
+        device_code: Number(code),
+      }));
+    } catch (err) {
+      this._set({ status: { kind: "error", text: this._describe(err) } });
+      await this._refreshDrafts();
+      this._render();
+      return;
+    }
+
+    const spec = {
+      ...structuredClone(DEFAULT_SPEC[draft.platform]),
+      ...draft.spec,
+    };
+    spec.models = [...(draft.spec.supportedModels || [])];
+    delete spec.supportedModels;
+
+    const state = this._state;
+    Object.assign(state, {
+      platform: draft.platform,
+      deviceCode: draft.device_code,
+      spec,
+      codes: draft.codes || {},
+      skipped: draft.skipped || {},
+      cells: [],
+      index: 0,
+      toggle: Boolean(draft.toggle),
+      overwrite: false,
+      templateCode: "",
+      entityName: "",
+      created: null,
+      saved: null,
+      draftKey: key,
+      draftCleared: false,
+      status: null,
+    });
+
+    // Only if it is still there: a Broadlink can be replaced between sittings,
+    // and pointing at an entity that no longer exists would fail at the first
+    // capture with a message about the wrong thing.
+    if (state.remotes.some((remote) => remote.entity_id === draft.remote_entity_id)) {
+      state.remote = draft.remote_entity_id;
+    }
+
+    await this._refreshCustomCodes();
+
+    // A draft saved before capturing began has no plan to return to. Leave it
+    // on the settings screen with everything filled in, rather than pushing an
+    // incomplete spec through hub_ir/plan just to show its complaint.
+    if (!draft.total) {
+      this._set({
+        status: {
+          kind: "ok",
+          text: this._t(
+            "ok.draftResumedSetup",
+            "Draft loaded. Check the settings, then build the list of codes."
+          ),
+        },
+      });
+      return;
+    }
+
+    await this._buildPlan();
+
+    // _buildPlan parks the cursor on the first gap. Put it back where the draft
+    // left it, but only if that cell still exists: the spec may have been
+    // edited since, or a newer version may plan the same device differently.
+    if (this._state.step === "capture" && draft.index < this._state.cells.length) {
+      this._set({ index: draft.index });
+    }
+  }
+
+  /** Throw a draft away, after asking. */
+  async _deleteDraft(key) {
+    const summary = this._state.drafts.find((entry) => entry.key === key);
+    const label = (summary && summary.label) || key;
+
+    if (
+      !confirm(
+        this._t(
+          "draft.confirmDelete",
+          "Delete the draft for {label}? The codes it holds are not saved " +
+            "anywhere else.",
+          { label }
+        )
+      )
+    ) {
+      return;
+    }
+
+    await this._dropDraft(key);
+    if (this._state.draftKey === key) this._state.draftKey = null;
+    await this._refreshDrafts();
+    this._render();
   }
 
   /** True when saving now would replace one of the user's own recordings. */
@@ -1120,12 +1369,95 @@ class BroadlinkIrPanel extends HTMLElement {
     return this._savedView();
   }
 
+  /**
+   * The recordings left unfinished, listed above everything else.
+   *
+   * Deliberately not numbered by _step(). The numbered cards are the walk
+   * through a new recording and they match docs/PANEL.md in order, so a step
+   * inserted here would renumber the documentation by accident.
+   */
+  _draftsCard() {
+    const drafts = this._state.drafts;
+    if (!drafts.length) return "";
+
+    return `
+      <div class="card">
+        <h2>${this._t("draft.heading", "Unfinished recordings")}</h2>
+        <p class="muted">${this._t(
+          "draft.intro",
+          "Kept on this Home Assistant rather than in this browser, so you can " +
+            "carry on from any device."
+        )}</p>
+        ${drafts.map((draft) => this._draftRow(draft)).join("")}
+      </div>
+    `;
+  }
+
+  _draftRow(draft) {
+    const total = draft.total || 0;
+    const label = draft.label || this._platformLabel(draft.platform);
+    const percent = total
+      ? Math.min(100, Math.round(((draft.done + draft.skipped) / total) * 100))
+      : 0;
+
+    const facts = [
+      this._platformLabel(draft.platform),
+      String(draft.device_code),
+      total
+        ? this._t("draft.progress", "{done} of {total} · {percent}%", {
+            done: draft.done + draft.skipped,
+            total,
+            percent,
+          })
+        : this._t("draft.notStarted", "settings only, nothing captured yet"),
+      this._when(draft.updated),
+    ].filter(Boolean);
+
+    return `
+      <div class="item draftrow">
+        <div class="item-name">
+          <div>${esc(label) || "&mdash;"}</div>
+          <div class="muted">${esc(facts.join(" · "))}</div>
+          ${total ? `<div class="bar"><div style="width:${percent}%"></div></div>` : ""}
+        </div>
+        <div class="item-tools">
+          <button data-draft="${esc(draft.key)}" data-act="resume">${this._t(
+            "button.resumeDraft",
+            "Carry on"
+          )}</button>
+          <button class="icon danger" data-draft="${esc(draft.key)}" data-act="delete"
+            aria-label="${esc(
+              this._t("aria.deleteDraft", "Delete the draft for {label}", {
+                label: label || draft.key,
+              })
+            )}">&#10005;</button>
+        </div>
+      </div>
+    `;
+  }
+
+  /** An ISO timestamp as the user's locale writes it, or "" if unreadable. */
+  _when(iso) {
+    if (!iso) return "";
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "";
+    try {
+      return date.toLocaleString(this._lang() || undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+    } catch {
+      return date.toLocaleString();
+    }
+  }
+
   _setupView() {
     const s = this._state;
     this._cardNumber = 0;
     const learnable = s.remotes.filter((r) => r.can_learn);
 
     return `
+      ${this._draftsCard()}
       <div class="card">
         <h2>${this._step(this._t("step.teaching", "What are you teaching?"))}</h2>
         <div class="grid">
@@ -1235,7 +1567,15 @@ class BroadlinkIrPanel extends HTMLElement {
         <button class="primary" id="plan" ${learnable.length ? "" : "disabled"}>
           ${this._t("button.buildList", "Build the list of codes")}
         </button>
+        <button id="save_draft" ${s.draftBusy ? "disabled" : ""}>
+          ${this._t("button.saveDraft", "Save draft")}
+        </button>
       </div>
+      <p class="muted">${this._t(
+        "draft.setupNote",
+        "Declaring an air conditioner is work in itself. Saving a draft here " +
+          "keeps the settings, so the list of codes only has to be built once."
+      )}</p>
       ${this._statusView()}
     `;
   }
@@ -1711,8 +2051,13 @@ class BroadlinkIrPanel extends HTMLElement {
   _captureView() {
     const s = this._state;
     const total = s.cells.length;
-    const done = Object.keys(s.codes).length;
-    const skipped = Object.keys(s.skipped).length;
+    // Counted over the plan, not over the maps. Loading a template — or
+    // resuming a draft — and then narrowing the spec leaves codes keyed to
+    // cells the plan no longer has, and counting those would push the bar past
+    // its own total. They are kept, not pruned: widening the spec again brings
+    // them back, and build_device_file ignores a key it did not ask for.
+    const done = s.cells.filter((cell) => s.codes[cell.key]).length;
+    const skipped = s.cells.filter((cell) => s.skipped[cell.key]).length;
     const current = s.cells[s.index];
     const percent = total ? Math.round(((done + skipped) / total) * 100) : 0;
 
@@ -1833,6 +2178,9 @@ class BroadlinkIrPanel extends HTMLElement {
           "button.backToSettings",
           "Back to the settings"
         )}</button>
+        <button id="save_draft" ${s.running || s.draftBusy ? "disabled" : ""}>
+          ${this._t("button.saveDraft", "Save draft")}
+        </button>
         <button class="primary" id="save" ${
           done && !(this._wouldOverwrite() && !s.overwrite) ? "" : "disabled"
         }>
@@ -1851,6 +2199,12 @@ class BroadlinkIrPanel extends HTMLElement {
             )}</p>`
           : ""
       }
+      <p class="muted">${this._t(
+        "draft.captureNote",
+        "A hundred codes is more than one sitting. <strong>Save draft</strong> " +
+          "keeps everything as it stands — the codes, the skips, and the code " +
+          "you are on — and it waits for you on the first screen."
+      )}</p>
     `;
   }
 
@@ -1870,6 +2224,15 @@ class BroadlinkIrPanel extends HTMLElement {
             )}</strong>
              <ul>${s.saved.warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>`
           : `<div class="status ok">${this._t("saved.noGaps", "No gaps found.")}</div>`
+      }
+      ${
+        s.draftCleared
+          ? `<p class="muted">${this._t(
+              "draft.cleared",
+              "The draft has been tidied away — this file replaces it, and it " +
+                "reopens from the box above whenever you want to add more codes."
+            )}</p>`
+          : ""
       }
     </div>
 
@@ -2216,6 +2579,10 @@ class BroadlinkIrPanel extends HTMLElement {
         created: null,
         toggle: false,
         overwrite: false,
+        // A different platform is a different recording, so the session stops
+        // being the draft it was; saving now must not overwrite that one.
+        draftKey: null,
+        draftCleared: false,
       });
       this._render();
       await this._refreshCustomCodes();
@@ -2284,6 +2651,16 @@ class BroadlinkIrPanel extends HTMLElement {
       node.addEventListener("click", () => this._toggleChip(node.dataset.key));
     }
 
+    // The draft rows. Their own attribute pair, so this dispatch cannot collide
+    // with the list controls' data-list or the older chips' data-key.
+    for (const node of root.querySelectorAll("[data-draft][data-act]")) {
+      node.addEventListener("click", () => {
+        const { draft, act } = node.dataset;
+        if (act === "resume") this._resumeDraft(draft);
+        else if (act === "delete") this._deleteDraft(draft);
+      });
+    }
+
     for (const node of root.querySelectorAll(".chip[data-reopen]")) {
       node.addEventListener("click", () => {
         this._state.templateCode = node.dataset.reopen;
@@ -2310,6 +2687,7 @@ class BroadlinkIrPanel extends HTMLElement {
     on("skip", "click", () => this._skip());
     on("test", "click", () => this._test());
     on("save", "click", () => this._save());
+    on("save_draft", "click", () => this._saveDraft());
     on("back", "click", () => this._set({ step: "setup" }));
 
     // Stored without re-rendering, like manufacturer and models: rebuilding the
@@ -2366,6 +2744,8 @@ class BroadlinkIrPanel extends HTMLElement {
         // Never cleared before, so a failed create would follow the user back
         // to a fresh setup screen as a red box about nothing.
         status: null,
+        draftKey: null,
+        draftCleared: false,
       });
       // The recording just saved should show up in the list straight away, and
       // the free code is a fact about the filesystem rather than the last code

@@ -77,8 +77,8 @@ Each code times out after 30 seconds. Alongside:
   says which one, so a gap is safe — just not useful.
 - **Test last code** transmits what was just captured, so you can confirm the
   air conditioner reacts before going any further.
-- **Stop** ends the run; your progress stays, and you can save at any point and
-  come back to it.
+- **Stop** ends the run; your progress stays, and **Save draft** parks it —
+  see [below](#saving-a-draft).
 
 - **Two-packet button** is for a remote whose button alternates between two
   packets — a Samsung power key is the usual one. Symptom: a captured code works
@@ -102,6 +102,39 @@ If you keep your entities in YAML instead, the block to paste is still there,
 folded under *Or write it into configuration.yaml yourself*. That route needs a
 restart — and do not use both for one device, or you will get two entities
 fighting over the same remote.
+
+## Saving a draft
+
+An air conditioner is around 120 codes even after you have declared which modes
+ignore what. That is not one sitting, and until you press *Save as device code*
+the whole session lives in the browser tab — so a reload, a crash, or a phone
+going flat took it with it.
+
+**Save draft** parks the session on your Home Assistant. It keeps everything the
+panel cannot work out again: the settings, every code captured so far, which
+targets you deliberately skipped, and the one you were standing on. The button
+is on the capture screen and next to *Build the list of codes*, so the
+declaration work is worth keeping on its own.
+
+Unfinished drafts are listed at the top of the first screen with what is left to
+do and when you last touched them. **Carry on** restores the session and drops
+you back at the code you stopped at.
+
+Three things worth knowing:
+
+- Drafts live in `.storage/hub_ir.drafts`, on the server. They are not in the
+  browser, so you can declare an air conditioner on a laptop, capture half of it
+  from a phone standing next to the unit, and finish it back at the desk.
+- The list of codes is **not** stored. Carrying on asks the server to work it out
+  from the settings again, which is how a draft written by an older version can
+  never bring back a plan this one disagrees with. If you edit the settings
+  before carrying on, the codes you already have are matched against the new
+  plan and only the genuinely new targets are left to capture.
+- Saving the device file clears the draft. The file supersedes it, and reopening
+  it later is what the template box on screen 2 is for.
+
+There is a ceiling of 20 drafts. Saving over one you already have is always
+allowed, so the limit only ever stops a twenty-first *new* recording.
 
 ## Teaching more codes to a device you have already added
 
